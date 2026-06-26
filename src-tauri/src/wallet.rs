@@ -3,6 +3,7 @@ use aes_gcm::{
     Aes256Gcm, Key, Nonce,
 };
 use base64::Engine;
+use bip39::{Language, Mnemonic};
 use rand::{rngs::OsRng, RngCore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -10,14 +11,22 @@ use solana_sdk::{signature::Keypair, signer::Signer, transaction::VersionedTrans
 use std::sync::Mutex;
 use tauri_plugin_store::StoreExt;
 
-// Keypair held in RAM while the wallet is unlocked. Cleared on lock/exit.
 pub struct WalletState(pub Option<Keypair>);
 
 #[derive(Debug, Serialize, Deserialize)]
 struct StoredWallet {
-    salt: String,   // base64
-    nonce: String,  // base64
-    ciphertext: String, // base64
+    salt: String,
+    nonce: String,
+    ciphertext: String,
+}
+
+/// Plaintext stored inside the AES-GCM envelope (JSON).
+#[derive(Serialize, Deserialize)]
+struct WalletSecrets {
+    /// base64-encoded 64-byte Solana keypair.
+    keypair_b64: String,
+    /// BIP39 mnemonic, present when the wallet was created or imported via phrase.
+    mnemonic: Option<String>,
 }
 
 const STORE_KEY: &str = "wallet.json";
@@ -32,7 +41,7 @@ fn derive_key(password: &str, salt: &[u8]) -> [u8; 32] {
     h.finalize().into()
 }
 
-fn encrypt(keypair: &Keypair, password: &str) -> StoredWallet {
+fn encrypt_secrets(secrets: &WalletSecrets, password: &str) -> StoredWallet {
     let mut salt = [0u8; 16];
     OsRng.fill_bytes(&mut salt);
     let mut nonce_bytes = [0u8; 12];
@@ -43,7 +52,7 @@ fn encrypt(keypair: &Keypair, password: &str) -> StoredWallet {
     let cipher = Aes256Gcm::new(key);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
-    let plaintext = keypair.to_bytes(); // 64 bytes: secret ++ public
+    let plaintext = serde_json::to_vec(secrets).expect("serialize wallet secrets");
     let ciphertext = cipher.encrypt(nonce, plaintext.as_ref()).expect("aes-gcm encrypt");
 
     StoredWallet {
@@ -53,7 +62,7 @@ fn encrypt(keypair: &Keypair, password: &str) -> StoredWallet {
     }
 }
 
-fn decrypt(stored: &StoredWallet, password: &str) -> Result<Keypair, String> {
+fn decrypt_secrets(stored: &StoredWallet, password: &str) -> Result<(Keypair, Option<String>), String> {
     let salt = B64.decode(&stored.salt).map_err(|e| e.to_string())?;
     let nonce_bytes = B64.decode(&stored.nonce).map_err(|e| e.to_string())?;
     let ciphertext = B64.decode(&stored.ciphertext).map_err(|e| e.to_string())?;
@@ -67,7 +76,20 @@ fn decrypt(stored: &StoredWallet, password: &str) -> Result<Keypair, String> {
         .decrypt(nonce, ciphertext.as_ref())
         .map_err(|_| "Wrong password".to_string())?;
 
-    Keypair::from_bytes(&plaintext).map_err(|e| e.to_string())
+    let secrets: WalletSecrets = serde_json::from_slice(&plaintext)
+        .map_err(|e| format!("Corrupt wallet data: {e}"))?;
+
+    let kb = B64.decode(&secrets.keypair_b64).map_err(|e| e.to_string())?;
+    let keypair = Keypair::try_from(kb.as_slice()).map_err(|e| e.to_string())?;
+
+    Ok((keypair, secrets.mnemonic))
+}
+
+fn keypair_to_secrets(keypair: &Keypair, mnemonic: Option<String>) -> WalletSecrets {
+    WalletSecrets {
+        keypair_b64: B64.encode(keypair.to_bytes()),
+        mnemonic,
+    }
 }
 
 fn load_stored(app: &tauri::AppHandle) -> Option<StoredWallet> {
@@ -91,6 +113,19 @@ pub struct WalletStatus {
     pub address: Option<String>,
 }
 
+#[derive(Serialize)]
+pub struct CreateResult {
+    pub address: String,
+    pub mnemonic: String,
+}
+
+#[derive(Serialize)]
+pub struct ExportResult {
+    pub address: String,
+    pub mnemonic: Option<String>,
+    pub private_key_b58: String,
+}
+
 #[tauri::command]
 pub fn get_wallet_status(
     app: tauri::AppHandle,
@@ -109,37 +144,60 @@ pub fn create_wallet(
     password: String,
     app: tauri::AppHandle,
     state: tauri::State<'_, Mutex<WalletState>>,
-) -> Result<String, String> {
-    let keypair = Keypair::new();
+) -> Result<CreateResult, String> {
+    if password.len() < 6 {
+        return Err("Password must be at least 6 characters".to_string());
+    }
+    let mnemonic = Mnemonic::generate_in(Language::English, 12).map_err(|e| e.to_string())?;
+    let seed = mnemonic.to_seed("");
+    let keypair = solana_sdk::signature::keypair_from_seed(&seed[..32])
+        .map_err(|e| e.to_string())?;
     let address = keypair.pubkey().to_string();
-    let stored = encrypt(&keypair, &password);
-    save_stored(&app, &stored)?;
+    let mnemonic_phrase = mnemonic.to_string();
+    let secrets = keypair_to_secrets(&keypair, Some(mnemonic_phrase.clone()));
+    save_stored(&app, &encrypt_secrets(&secrets, &password))?;
     state.lock().unwrap().0 = Some(keypair);
-    Ok(address)
+    Ok(CreateResult { address, mnemonic: mnemonic_phrase })
 }
 
 #[tauri::command]
 pub fn import_wallet(
-    private_key: String,
+    secret: String,
     password: String,
     app: tauri::AppHandle,
     state: tauri::State<'_, Mutex<WalletState>>,
 ) -> Result<String, String> {
-    let trimmed = private_key.trim();
-    let bytes = bs58::decode(trimmed)
-        .into_vec()
-        .map_err(|e| format!("Invalid base58: {e}"))?;
+    if password.len() < 6 {
+        return Err("Password must be at least 6 characters".to_string());
+    }
+    let trimmed = secret.trim();
+    let word_count = trimmed.split_whitespace().count();
 
-    let keypair = match bytes.len() {
-        64 => Keypair::from_bytes(&bytes).map_err(|e| e.to_string())?,
-        32 => solana_sdk::signature::keypair_from_seed(&bytes)
-            .map_err(|e| e.to_string())?,
-        n => return Err(format!("Expected 32 or 64 bytes, got {n}")),
+    let (keypair, mnemonic) = if word_count >= 3 {
+        // Treat as BIP39 mnemonic
+        let m = Mnemonic::parse_in(Language::English, trimmed)
+            .map_err(|e| format!("Invalid mnemonic: {e}"))?;
+        let seed = m.to_seed("");
+        let kp = solana_sdk::signature::keypair_from_seed(&seed[..32])
+            .map_err(|e| e.to_string())?;
+        (kp, Some(m.to_string()))
+    } else {
+        // Treat as base58 private key
+        let bytes = bs58::decode(trimmed)
+            .into_vec()
+            .map_err(|e| format!("Invalid base58: {e}"))?;
+        let kp = match bytes.len() {
+            64 => Keypair::try_from(bytes.as_slice()).map_err(|e| e.to_string())?,
+            32 => solana_sdk::signature::keypair_from_seed(&bytes)
+                .map_err(|e| e.to_string())?,
+            n => return Err(format!("Expected 32 or 64 bytes, got {n}")),
+        };
+        (kp, None)
     };
 
     let address = keypair.pubkey().to_string();
-    let stored = encrypt(&keypair, &password);
-    save_stored(&app, &stored)?;
+    let secrets = keypair_to_secrets(&keypair, mnemonic);
+    save_stored(&app, &encrypt_secrets(&secrets, &password))?;
     state.lock().unwrap().0 = Some(keypair);
     Ok(address)
 }
@@ -151,7 +209,7 @@ pub fn unlock_wallet(
     state: tauri::State<'_, Mutex<WalletState>>,
 ) -> Result<String, String> {
     let stored = load_stored(&app).ok_or_else(|| "No wallet found".to_string())?;
-    let keypair = decrypt(&stored, &password)?;
+    let (keypair, _) = decrypt_secrets(&stored, &password)?;
     let address = keypair.pubkey().to_string();
     state.lock().unwrap().0 = Some(keypair);
     Ok(address)
@@ -160,6 +218,20 @@ pub fn unlock_wallet(
 #[tauri::command]
 pub fn lock_wallet(state: tauri::State<'_, Mutex<WalletState>>) {
     state.lock().unwrap().0 = None;
+}
+
+#[tauri::command]
+pub fn export_wallet(
+    password: String,
+    app: tauri::AppHandle,
+) -> Result<ExportResult, String> {
+    let stored = load_stored(&app).ok_or_else(|| "No wallet found".to_string())?;
+    let (keypair, mnemonic) = decrypt_secrets(&stored, &password)?;
+    Ok(ExportResult {
+        address: keypair.pubkey().to_string(),
+        private_key_b58: bs58::encode(keypair.to_bytes()).into_string(),
+        mnemonic,
+    })
 }
 
 #[tauri::command]

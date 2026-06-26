@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { WalletGate } from './components/auth/WalletGate'
 import { useWallet } from './hooks/useWallet'
@@ -9,35 +9,46 @@ import { PortfolioPanel } from './components/portfolio/PortfolioPanel'
 import { useTokenFeedStore } from './store/tokenFeed'
 import { formatAge, formatSol, formatPrice, formatUsd } from './lib/format'
 import { truncateAddress } from './lib/utils'
+import { ExportModal } from './components/wallet/ExportModal'
 
 function Header() {
   const { address, logout } = useWallet()
+  const [showExport, setShowExport] = useState(false)
 
   return (
-    <header className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-base)] px-5 py-3 flex-shrink-0">
-      <div className="flex items-center gap-2.5">
-        <span className="text-[var(--accent)] text-base select-none">◎</span>
-        <h1 className="text-sm font-bold tracking-wide text-[var(--text-1)]">
-          Sol Lens
-        </h1>
-        <span className="text-[9px] font-semibold text-[var(--text-3)] bg-[var(--bg-surface)] border border-[var(--border)] px-1.5 py-0.5 rounded tracking-widest">
-          ALPHA
-        </span>
-      </div>
-      <div className="flex items-center gap-3">
-        {address && (
-          <span className="font-mono text-xs text-[var(--text-2)] bg-[var(--bg-surface)] px-2.5 py-1 rounded-md border border-[var(--border)]">
-            {truncateAddress(address, 4, 4)}
+    <>
+      <header className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg-base)] px-5 py-3 flex-shrink-0">
+        <div className="flex items-center gap-2.5">
+          <span className="text-[var(--accent)] text-base select-none">◎</span>
+          <h1 className="text-sm font-bold tracking-wide text-[var(--text-1)]">
+            Sol Lens
+          </h1>
+          <span className="text-[9px] font-semibold text-[var(--text-3)] bg-[var(--bg-surface)] border border-[var(--border)] px-1.5 py-0.5 rounded tracking-widest">
+            ALPHA
           </span>
-        )}
-        <button
-          onClick={logout}
-          className="text-xs text-[var(--text-3)] hover:text-[var(--negative)] transition-colors px-2 py-1"
-        >
-          Disconnect
-        </button>
-      </div>
-    </header>
+        </div>
+        <div className="flex items-center gap-3">
+          {address && (
+            <span className="font-mono text-xs text-[var(--text-2)] bg-[var(--bg-surface)] px-2.5 py-1 rounded-md border border-[var(--border)]">
+              {truncateAddress(address, 4, 4)}
+            </span>
+          )}
+          <button
+            onClick={() => setShowExport(true)}
+            className="text-xs text-[var(--text-3)] hover:text-[var(--text-2)] transition-colors px-2 py-1"
+          >
+            Export
+          </button>
+          <button
+            onClick={logout}
+            className="text-xs text-[var(--text-3)] hover:text-[var(--negative)] transition-colors px-2 py-1"
+          >
+            Disconnect
+          </button>
+        </div>
+      </header>
+      {showExport && <ExportModal onClose={() => setShowExport(false)} />}
+    </>
   )
 }
 

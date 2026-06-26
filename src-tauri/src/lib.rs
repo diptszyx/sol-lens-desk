@@ -103,6 +103,7 @@ pub fn run() {
             wallet::unlock_wallet,
             wallet::lock_wallet,
             wallet::sign_transaction,
+            wallet::export_wallet,
         ])
         .run(tauri::generate_context!())
         .expect("error running app");
