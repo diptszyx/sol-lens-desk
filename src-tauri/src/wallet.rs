@@ -76,13 +76,20 @@ fn decrypt_secrets(stored: &StoredWallet, password: &str) -> Result<(Keypair, Op
         .decrypt(nonce, ciphertext.as_ref())
         .map_err(|_| "Wrong password".to_string())?;
 
-    let secrets: WalletSecrets = serde_json::from_slice(&plaintext)
-        .map_err(|e| format!("Corrupt wallet data: {e}"))?;
+    // New format: JSON envelope.
+    if let Ok(secrets) = serde_json::from_slice::<WalletSecrets>(&plaintext) {
+        let kb = B64.decode(&secrets.keypair_b64).map_err(|e| e.to_string())?;
+        let keypair = Keypair::try_from(kb.as_slice()).map_err(|e| e.to_string())?;
+        return Ok((keypair, secrets.mnemonic));
+    }
 
-    let kb = B64.decode(&secrets.keypair_b64).map_err(|e| e.to_string())?;
-    let keypair = Keypair::try_from(kb.as_slice()).map_err(|e| e.to_string())?;
+    // Legacy format: raw 64-byte keypair (wallets created before JSON migration).
+    if plaintext.len() == 64 {
+        let keypair = Keypair::try_from(plaintext.as_slice()).map_err(|e| e.to_string())?;
+        return Ok((keypair, None));
+    }
 
-    Ok((keypair, secrets.mnemonic))
+    Err("Corrupt wallet data — wrong password or unknown format".to_string())
 }
 
 fn keypair_to_secrets(keypair: &Keypair, mnemonic: Option<String>) -> WalletSecrets {
