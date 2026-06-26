@@ -1,0 +1,11 @@
+{
+  "name": "@sol-lens/shared",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    "./types": "./types.ts",
+    "./utils": "./utils.ts",
+    "./constants": "./constants.ts",
+    "./design-tokens.css": "./design-tokens.css"
+  }
+}

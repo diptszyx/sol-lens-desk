@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sol Lens Desk</title>
+    <!-- Inline first-paint styles so the window opens dark instantly instead of
+         flashing white while the (large, Privy-heavy) JS bundle parses. -->
+    <style>
+      html, body { margin: 0; height: 100%; background: #09090f; color: #eeeef5; }
+      #boot { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+      #boot .spin { width: 32px; height: 32px; border: 2px solid #c8f135; border-top-color: transparent; border-radius: 9999px; animation: boot-spin .8s linear infinite; }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body class="bg-[#09090f] text-[#eeeef5] antialiased">
+    <div id="root"><div id="boot"><div class="spin"></div></div></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

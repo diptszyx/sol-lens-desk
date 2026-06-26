@@ -1,0 +1,44 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-config-schema/schema.json",
+  "productName": "Sol Lens Desk",
+  "version": "0.1.0",
+  "identifier": "io.sol-lens.desk",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Sol Lens Desk",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 600
+      },
+      {
+        "label": "pet",
+        "title": "Sol Lens Pet",
+        "url": "index.html",
+        "width": 240,
+        "height": 180,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "resizable": false,
+        "visible": false,
+        "focus": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' tauri:; script-src 'self' 'unsafe-inline'; connect-src https://*.privy.io wss://* https://* ws://localhost:* http://localhost:* ipc: http://ipc.localhost; frame-src https://*.privy.io; img-src 'self' data: https:"
+    }
+  },
+  "plugins": {}
+}

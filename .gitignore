@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+target/
+
+# Environment
+.env
+.env.local
+
+# Tauri
+src-tauri/target/
+
+# Editor
+.DS_Store
+.claude/settings.local.json

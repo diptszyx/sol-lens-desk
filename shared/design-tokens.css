@@ -1,0 +1,15 @@
+:root {
+  --bg-deep:    #07070f;
+  --bg-base:    #0c0c1a;
+  --bg-surface: #141426;
+  --bg-elevated: #1e1e34;
+  --text-1: #f5f5ff;
+  --text-2: #c0c0e0;
+  --text-3: #8080aa;
+  --border: rgba(255,255,255,0.10);
+  --border-strong: rgba(255,255,255,0.18);
+  --accent:    #c8f135;
+  --accent-dim: rgba(200,241,53,0.12);
+  --positive:  #4ade80;
+  --negative:  #f87171;
+}
