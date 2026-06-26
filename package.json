@@ -10,7 +10,6 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@sol-lens/shared": "workspace:*",
     "@solana-program/memo": "^0.11.2",
     "@solana-program/system": "^0.12.2",
     "@solana/kit": "^6",

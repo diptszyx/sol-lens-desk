@@ -1,5 +1,5 @@
 @import 'tailwindcss';
-@import '../../../shared/design-tokens.css';
+@import './styles/tokens.css';
 
 html, body, #root {
   height: 100%;

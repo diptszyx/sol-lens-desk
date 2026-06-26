@@ -11,8 +11,3 @@ export function useWallet() {
 
   return { address, logout }
 }
-
-export async function refreshWalletAddress(setAddress: (a: string | null) => void) {
-  const status = await invoke<{ address: string | null }>('get_wallet_status')
-  setAddress(status.address)
-}

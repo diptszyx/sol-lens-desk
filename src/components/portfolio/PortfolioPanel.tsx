@@ -1,6 +1,5 @@
 import { usePortfolioStore } from '../../store/portfolio'
 import { usePricePoll } from '../../hooks/usePricePoll'
-import { truncateAddress } from '@shared/utils'
 import { formatSol } from '../../lib/format'
 
 export function PortfolioPanel() {

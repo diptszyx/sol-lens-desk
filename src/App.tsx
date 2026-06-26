@@ -8,7 +8,7 @@ import { TradePanel } from './components/token-detail/TradePanel'
 import { PortfolioPanel } from './components/portfolio/PortfolioPanel'
 import { useTokenFeedStore } from './store/tokenFeed'
 import { formatAge, formatSol, formatPrice, formatUsd } from './lib/format'
-import { truncateAddress } from '@shared/utils'
+import { truncateAddress } from './lib/utils'
 
 function Header() {
   const { address, logout } = useWallet()

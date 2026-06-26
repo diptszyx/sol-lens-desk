@@ -3,7 +3,6 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, emitTo } from '@tauri-apps/api/event'
 import { useWalletStore } from '../store/wallet'
 import { usePortfolioStore } from '../store/portfolio'
-import { base64ToBytes, bytesToBase64 } from '../lib/swap'
 import {
   PET_BUY_REQUEST,
   PET_BUY_RESULT,
@@ -79,6 +78,3 @@ export function usePetTradeBridge() {
     return () => { unlisten?.() }
   }, [address, addPosition])
 }
-
-// Keep the imports used (base64ToBytes, bytesToBase64 used by other modules)
-export { base64ToBytes, bytesToBase64 }
