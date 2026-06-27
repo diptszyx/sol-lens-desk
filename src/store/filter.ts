@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { DEFAULT_FILTER, type FilterConfig } from '../types'
+import { DEFAULT_FILTER, SCORE_PRESETS, type FilterConfig } from '../types'
 
 const FILE = 'sol-lens.settings.json'
 const KEY = 'filter'
@@ -9,8 +9,6 @@ async function tauriStore() {
   return mod.load(FILE, { autoSave: false, defaults: {} })
 }
 
-// Persist to the Tauri store (real desktop), falling back to localStorage in a
-// plain browser (smoke tests / dev) so the feature degrades gracefully.
 async function persist(f: FilterConfig): Promise<void> {
   try {
     const s = await tauriStore()
@@ -47,8 +45,10 @@ async function loadSaved(): Promise<FilterConfig | null> {
 interface FilterStore {
   filter: FilterConfig
   hydrated: boolean
+  activePreset: keyof typeof SCORE_PRESETS | null
   set: (patch: Partial<FilterConfig>) => void
-  apply: (f: FilterConfig) => void
+  applyPreset: (preset: keyof typeof SCORE_PRESETS, config: FilterConfig) => void
+  clearPreset: () => void
   reset: () => void
   hydrate: () => Promise<void>
 }
@@ -56,22 +56,26 @@ interface FilterStore {
 export const useFilterStore = create<FilterStore>((set, get) => ({
   filter: DEFAULT_FILTER,
   hydrated: false,
+  activePreset: null,
   set: (patch) => {
     const next = { ...get().filter, ...patch }
-    set({ filter: next })
+    set({ filter: next, activePreset: null })
     void persist(next)
   },
-  apply: (f) => {
-    set({ filter: f })
-    void persist(f)
+  applyPreset: (preset, config) => {
+    set({ filter: config, activePreset: preset })
+    void persist(config)
+  },
+  clearPreset: () => {
+    set({ activePreset: null })
   },
   reset: () => {
-    set({ filter: DEFAULT_FILTER })
+    set({ filter: DEFAULT_FILTER, activePreset: null })
     void persist(DEFAULT_FILTER)
   },
   hydrate: async () => {
     const saved = await loadSaved()
-    // Merge over defaults so configs saved by older versions stay valid.
-    set({ filter: saved ? { ...DEFAULT_FILTER, ...saved } : DEFAULT_FILTER, hydrated: true })
+    const merged = saved ? { ...DEFAULT_FILTER, ...saved } : DEFAULT_FILTER
+    set({ filter: merged, hydrated: true })
   },
 }))

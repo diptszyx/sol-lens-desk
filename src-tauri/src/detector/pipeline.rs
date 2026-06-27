@@ -1,46 +1,47 @@
 use tokio::sync::mpsc;
-use tauri::{AppHandle, Emitter};
-use solana_client::nonblocking::rpc_client::RpcClient;
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::RawTokenEvent;
 use crate::enricher;
+use crate::rpc::RpcState;
 
 pub const PENDING_QUEUE_CAP: usize = 500;
 
 pub struct Pipeline {
     rx: mpsc::Receiver<RawTokenEvent>,
-    rpc_url: String,
     app: AppHandle,
 }
 
 impl Pipeline {
-    pub fn new(rx: mpsc::Receiver<RawTokenEvent>, rpc_url: String, app: AppHandle) -> Self {
-        Self { rx, rpc_url, app }
+    pub fn new(rx: mpsc::Receiver<RawTokenEvent>, app: AppHandle) -> Self {
+        Self { rx, app }
     }
 
     pub async fn run(&mut self) {
         tracing::info!("Pipeline started, waiting for token events...");
 
         while let Some(event) = self.rx.recv().await {
-            let rpc = RpcClient::new(self.rpc_url.clone());
             let app = self.app.clone();
+            let rpc_state = app.state::<RpcState>();
+            let rpc_url = rpc_state.rpc_url.clone();
 
             tokio::spawn(async move {
-                match enricher::enrich(&rpc, &event).await {
-                    Ok(Some(token)) => {
+                match enricher::enrich(&event, &rpc_url).await {
+                    Some(token) => {
                         tracing::info!(
-                            "Token detected: {} (source: {}, liq: {} SOL)",
+                            "Token detected: {} (source: {}, score: {}, liq: {} SOL)",
                             token.symbol.as_deref().unwrap_or("?"),
                             token.source,
+                            token.score,
                             token.liquidity_sol,
                         );
                         app.emit("token_detected", &token).ok();
                     }
-                    Ok(None) => {
-                        tracing::debug!("Token {} filtered out", event.signature);
-                    }
-                    Err(e) => {
-                        tracing::warn!("Enrich failed for {}: {e}", event.signature);
+                    None => {
+                        tracing::debug!(
+                            "Token {} skipped (no mint or authority gate)",
+                            event.signature
+                        );
                     }
                 }
             });

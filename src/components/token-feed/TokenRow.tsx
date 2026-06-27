@@ -19,7 +19,7 @@ export function TokenRow({ token, onClick, isSelected }: Props) {
           : 'border-l-2 border-l-transparent hover:bg-[var(--bg-surface)] hover:border-l-[var(--border-strong)]'
       }`}
     >
-      {/* Row 1: symbol + source badge + age */}
+      {/* Row 1: symbol + score badge + age */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span
@@ -29,6 +29,9 @@ export function TokenRow({ token, onClick, isSelected }: Props) {
           />
           <span className="font-mono font-bold text-[var(--text-1)] text-sm truncate">
             ${displaySymbol}
+          </span>
+          <span className={`text-[10px] font-bold tabular-nums ${scoreColor(token.score)}`}>
+            {token.score}
           </span>
         </div>
         <span className="text-[10px] text-[var(--text-3)] flex-shrink-0 tabular-nums">
@@ -98,4 +101,10 @@ function devHoldColor(pct: number): 'green' | 'yellow' | 'red' {
   if (pct < 10) return 'green'
   if (pct < 25) return 'yellow'
   return 'red'
+}
+
+function scoreColor(score: number): string {
+  if (score >= 70) return 'text-green-400'
+  if (score >= 40) return 'text-yellow-400'
+  return 'text-red-400'
 }

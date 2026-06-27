@@ -34,6 +34,12 @@ function Stat({ label, value }: { label: string; value: string }) {
   )
 }
 
+function scoreColor(score: number): string {
+  if (score >= 70) return 'text-green-400'
+  if (score >= 40) return 'text-yellow-400'
+  return 'text-red-400'
+}
+
 export function PetCard({ token }: { token: DetectedToken }) {
   const [amount, setAmount] = useState(0.1)
   const [state, setState] = useState<BuyState>({ tag: 'idle' })
@@ -76,13 +82,28 @@ export function PetCard({ token }: { token: DetectedToken }) {
   return (
     <div className="w-full rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-3 shadow-2xl">
       {/* Header */}
-      <div className="mb-2 flex items-baseline justify-between">
+      <div className="mb-1 flex items-baseline justify-between">
         <h2 className="truncate font-mono text-base font-bold text-[var(--text-1)]">
           ${displaySymbol}
         </h2>
         <span className="text-[10px] text-[var(--text-3)]">
           {token.source === 'pump_fun' ? 'pump.fun' : token.source}
         </span>
+      </div>
+
+      {/* Score line */}
+      <div className="mb-2 space-y-1">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-[var(--text-2)]">Score:</span>
+          <span className={`text-base font-bold ${scoreColor(token.score)}`}>
+            {token.score}/100
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-[10px] text-[var(--text-3)] flex-wrap">
+          {token.dev_hold_pct != null && <span>Dev: {token.dev_hold_pct.toFixed(1)}%</span>}
+          {token.bonding_curve_pct != null && <span>· Curve: {token.bonding_curve_pct.toFixed(0)}%</span>}
+          {token.dev_buy_sol != null && token.dev_buy_sol > 0 && <span>· Buy: {token.dev_buy_sol.toFixed(2)}◎</span>}
+        </div>
       </div>
 
       {/* 4 stats — price, mcap, liquidity, age */}

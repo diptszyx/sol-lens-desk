@@ -29,6 +29,7 @@ aes-gcm = "0.10"
 sha2 = "0.10"
 rand = "0.8"
 bip39 = { version = "2", features = ["rand"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 [features]
 default = []

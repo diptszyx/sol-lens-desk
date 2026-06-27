@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { emit } from '@tauri-apps/api/event'
 import type { DetectedToken, TxResult } from '../../types'
 import { usePortfolioStore } from '../../store/portfolio'
 import { useWalletStore } from '../../store/wallet'
@@ -27,7 +28,6 @@ const QUOTE_DEBOUNCE_MS = 600
 
 export function TradePanel({ token }: Props) {
   const address = useWalletStore((s) => s.address)
-  const addPosition = usePortfolioStore((s) => s.addPosition)
 
   const [amount, setAmount] = useState('0.1')
   const [slippageBps, setSlippageBps] = useState(100)
@@ -110,17 +110,24 @@ export function TradePanel({ token }: Props) {
       setState({ tag: 'done', result: txResult })
 
       if (txResult.status === 'confirmed' && token.price_usd != null) {
-        addPosition({
+        const slPct = usePortfolioStore.getState().globalStopLossPct
+
+        // Position creation is owned by the `buy_confirmed` listener in the store.
+        emit('buy_confirmed', {
           mint: token.mint,
           symbol: displaySymbol,
-          entry_price_usd: token.price_usd,
+          decimals: token.decimals,
+          amount_sol: amountNum,
           amount_tokens: outAmountUi,
-          amount_sol_spent: amountNum,
-          current_price_usd: token.price_usd,
-          pnl_pct: null,
-          opened_at: Date.now(),
+          entry_price_usd: token.price_usd,
           tx_signature: txResult.signature,
         })
+
+        invoke('start_price_tracking', {
+          mint: token.mint,
+          entryPriceUsd: token.price_usd,
+          stopLossPct: slPct,
+        }).catch(console.error)
       }
     } catch (err) {
       setState({ tag: 'error', message: String(err) })

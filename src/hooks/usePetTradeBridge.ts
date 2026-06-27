@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { listen, emitTo } from '@tauri-apps/api/event'
+import { listen, emitTo, emit } from '@tauri-apps/api/event'
 import { useWalletStore } from '../store/wallet'
 import { usePortfolioStore } from '../store/portfolio'
 import {
@@ -12,7 +12,6 @@ import {
 
 export function usePetTradeBridge() {
   const address = useWalletStore((s) => s.address)
-  const addPosition = usePortfolioStore((s) => s.addPosition)
 
   useEffect(() => {
     let unlisten: (() => void) | null = null
@@ -58,17 +57,24 @@ export function usePetTradeBridge() {
         })
 
         if (txResult.status === 'confirmed' && token.price_usd != null) {
-          addPosition({
+          const slPct = usePortfolioStore.getState().globalStopLossPct
+
+          // Position creation is owned by the `buy_confirmed` listener in the store.
+          emit('buy_confirmed', {
             mint: token.mint,
             symbol: token.symbol ?? token.mint.slice(0, 6),
-            entry_price_usd: token.price_usd,
+            decimals: token.decimals,
+            amount_sol: amountSol,
             amount_tokens: quote.out_amount_ui,
-            amount_sol_spent: amountSol,
-            current_price_usd: token.price_usd,
-            pnl_pct: null,
-            opened_at: Date.now(),
+            entry_price_usd: token.price_usd,
             tx_signature: txResult.signature,
           })
+
+          invoke('start_price_tracking', {
+            mint: token.mint,
+            entryPriceUsd: token.price_usd,
+            stopLossPct: slPct,
+          }).catch(console.error)
         }
       } catch (err) {
         reply({ mint: token.mint, status: 'failed', signature: null, error: String(err) })
@@ -76,5 +82,5 @@ export function usePetTradeBridge() {
     }).then((fn) => { unlisten = fn })
 
     return () => { unlisten?.() }
-  }, [address, addPosition])
+  }, [address])
 }

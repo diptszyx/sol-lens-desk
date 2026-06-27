@@ -1,6 +1,8 @@
 mod commands;
+mod db;
 mod detector;
 mod enricher;
+mod price_tracker;
 mod rpc;
 mod wallet;
 
@@ -10,7 +12,6 @@ use tauri::{
     Manager, WindowEvent,
 };
 
-/// Bring the dashboard window to the foreground (used by tray click + menu).
 fn focus_main(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.show();
@@ -64,6 +65,14 @@ pub fn run() {
         .setup(move |app| {
             build_tray(app)?;
 
+            let app_data_dir = app.path().app_data_dir()?;
+            let db_path = app_data_dir.join("sol-lens.db");
+            let db_pool = db::DbPool::open(&db_path)?;
+            app.manage(db_pool);
+
+            let tracker = price_tracker::PriceTracker::new(app.handle().clone());
+            app.manage(tracker);
+
             let (tx, rx) = tokio::sync::mpsc::channel(detector::pipeline::PENDING_QUEUE_CAP);
 
             let tx1 = tx.clone();
@@ -71,17 +80,13 @@ pub fn run() {
                 detector::pumpportal::listen(tx1).await.ok();
             });
 
-            let mut pipeline = detector::pipeline::Pipeline::new(
-                rx,
-                rpc_url.clone(),
-                app.handle().clone(),
-            );
-            tauri::async_runtime::spawn(async move { pipeline.run().await });
+            let mut pipeline = detector::pipeline::Pipeline::new(rx, app.handle().clone());
+            tauri::async_runtime::spawn(async move {
+                pipeline.run().await;
+            });
 
             Ok(())
         })
-        // Closing the dashboard hides it instead of quitting — the app keeps
-        // running in the tray with the capybara overlay alive. Quit via tray.
         .on_window_event(|window, event| {
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
@@ -90,13 +95,25 @@ pub fn run() {
                 }
             }
         })
-        .manage(rpc::RpcState { rpc_url: rpc_url_for_state })
+        .manage(rpc::RpcState {
+            rpc_url: rpc_url_for_state,
+        })
         .manage(std::sync::Mutex::new(wallet::WalletState(None)))
         .invoke_handler(tauri::generate_handler![
             commands::tokens::get_new_tokens,
             commands::tokens::get_token_detail,
             commands::swap::build_swap_transaction,
             commands::swap::send_transaction,
+            commands::sell::build_sell_transaction,
+            commands::sell::send_sell_transaction,
+            commands::pet::get_pet_state,
+            commands::pet::update_pet_xp,
+            commands::price_tracking::start_price_tracking,
+            commands::price_tracking::stop_price_tracking,
+            commands::history::log_trade,
+            commands::history::record_closed_position,
+            commands::history::get_closed_positions,
+            commands::history::get_trade_history,
             wallet::get_wallet_status,
             wallet::create_wallet,
             wallet::import_wallet,

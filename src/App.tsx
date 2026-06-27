@@ -6,7 +6,11 @@ import { usePetTradeBridge } from './hooks/usePetTradeBridge'
 import { TokenFeed } from './components/token-feed/TokenFeed'
 import { TradePanel } from './components/token-detail/TradePanel'
 import { PortfolioPanel } from './components/portfolio/PortfolioPanel'
+import { MiniPet } from './components/pet/MiniPet'
 import { useTokenFeedStore } from './store/tokenFeed'
+import { usePetStore } from './store/pet'
+import { setupPortfolioEventListeners } from './store/portfolio'
+import { setupPetEventListeners } from './store/pet'
 import { formatAge, formatSol, formatPrice, formatUsd } from './lib/format'
 import { truncateAddress } from './lib/utils'
 import { ExportModal } from './components/wallet/ExportModal'
@@ -28,6 +32,7 @@ function Header() {
           </span>
         </div>
         <div className="flex items-center gap-3">
+          <MiniPet />
           {address && (
             <span className="font-mono text-xs text-[var(--text-2)] bg-[var(--bg-surface)] px-2.5 py-1 rounded-md border border-[var(--border)]">
               {truncateAddress(address, 4, 4)}
@@ -137,11 +142,14 @@ function TokenDetail() {
 }
 
 function Dashboard() {
-  // Bridge buy requests coming from the capybara overlay window.
   usePetTradeBridge()
 
-  // Show the capybara overlay once the dashboard mounts (i.e. after login);
-  // hide it again on logout (unmount).
+  useEffect(() => {
+    setupPortfolioEventListeners()
+    setupPetEventListeners()
+    usePetStore.getState().loadFromDb()
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     WebviewWindow.getByLabel('pet').then((w) => {
