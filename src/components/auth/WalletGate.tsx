@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useWalletStore } from '../../store/wallet'
 import { WalletSetup } from './WalletSetup'
 import { WalletUnlock } from './WalletUnlock'
-
-type Stage = 'loading' | 'no-wallet' | 'locked' | 'ready'
+import { LoadingScreen } from './LoadingScreen'
 
 interface WalletStatus {
   has_wallet: boolean
@@ -14,7 +13,8 @@ interface WalletStatus {
 
 export function WalletGate({ children }: { children: React.ReactNode }) {
   const setAddress = useWalletStore((s) => s.setAddress)
-  const [stage, setStage] = useState<Stage>('loading')
+  const stage = useWalletStore((s) => s.stage)
+  const setStage = useWalletStore((s) => s.setStage)
 
   useEffect(() => {
     invoke<WalletStatus>('get_wallet_status').then((s) => {
@@ -27,21 +27,15 @@ export function WalletGate({ children }: { children: React.ReactNode }) {
         setStage('no-wallet')
       }
     })
-  }, [setAddress])
+  }, [setAddress, setStage])
 
   function onWalletReady(address: string) {
     setAddress(address)
     setStage('ready')
   }
 
-  if (stage === 'loading') {
-    return (
-      <div className="flex h-screen items-center justify-center bg-[var(--bg-deep)]">
-        <div className="w-6 h-6 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-spin" />
-      </div>
-    )
-  }
+  if (stage === 'loading') return <LoadingScreen />
   if (stage === 'no-wallet') return <WalletSetup onSuccess={onWalletReady} />
-  if (stage === 'locked') return <WalletUnlock onSuccess={onWalletReady} />
+  if (stage === 'locked') return <WalletUnlock onSuccess={onWalletReady} onReset={() => setStage('no-wallet')} />
   return <>{children}</>
 }

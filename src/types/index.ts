@@ -1,3 +1,10 @@
+export interface ScoreBreakdown {
+  dev_hold_safety: number
+  bonding_curve_signal: number
+  dev_buy_signal: number
+  socials_signal: number
+}
+
 export interface DetectedToken {
   mint: string
   symbol: string | null
@@ -16,9 +23,13 @@ export interface DetectedToken {
   bonding_curve_pct: number | null
   dev_buy_sol: number | null
   has_socials: boolean | null
+  twitter_url: string | null
+  telegram_url: string | null
+  website_url: string | null
   mint_authority_revoked: boolean
   freeze_authority_revoked: boolean
   score: number
+  score_breakdown: ScoreBreakdown
 }
 
 export interface Position {
@@ -40,6 +51,7 @@ export interface Position {
 export const DEFAULT_SL_PCT = 50
 
 export interface SwapParams {
+  input_mint: string
   output_mint: string
   amount_lamports: number
   slippage_bps: number
@@ -77,16 +89,18 @@ export interface FilterConfig {
   minScoreThreshold: number
 }
 
+export const MAX_AGE_SEC = 600 // 10 min = watch_list TTL; stale beyond this
+
 export const DEFAULT_FILTER: FilterConfig = {
-  maxAgeSec: null,
-  minLiquiditySol: null,
+  maxAgeSec: 120,
+  minLiquiditySol: 3,
   hideUnnamed: true,
   search: '',
-  minScoreThreshold: 55,
+  minScoreThreshold: 60,
 }
 
 export const SCORE_PRESETS = {
   degen: { label: 'Degen', threshold: 30 },
-  balanced: { label: 'Balanced', threshold: 55 },
-  safe: { label: 'Safe', threshold: 75 },
+  balanced: { label: 'Balanced', threshold: 60 },
+  safe: { label: 'Safe', threshold: 80 },
 } as const

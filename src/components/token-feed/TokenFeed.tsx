@@ -3,32 +3,28 @@ import { useTokenFeed } from '../../hooks/useTokenFeed'
 import { useTokenFeedStore } from '../../store/tokenFeed'
 import { useFilterStore } from '../../store/filter'
 import { matchesFilter } from '../../lib/filter'
-import { DEFAULT_FILTER } from '../../types'
-import { FilterPanel } from '../filter/FilterPanel'
 import { TokenRow } from './TokenRow'
+import { FilterPanel } from '../filter/FilterPanel'
 
 export function TokenFeed() {
   useTokenFeed()
   const { tokens, selected, selectToken } = useTokenFeedStore()
   const filter = useFilterStore((s) => s.filter)
   const hydrate = useFilterStore((s) => s.hydrate)
-  const [showFilters, setShowFilters] = useState(false)
 
-  // Load the persisted filter once on mount.
-  useEffect(() => {
-    void hydrate()
-  }, [hydrate])
+  const [showFilter, setShowFilter] = useState(false)
+
+  useEffect(() => { void hydrate() }, [hydrate])
 
   const filtered = useMemo(
     () => tokens.filter((t) => matchesFilter(t, filter)),
     [tokens, filter],
   )
 
-  const filterActive = JSON.stringify(filter) !== JSON.stringify(DEFAULT_FILTER)
-
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-[var(--border)] flex items-center justify-between bg-[var(--bg-base)]">
+      {/* Count bar */}
+      <div className="px-4 py-2 border-b border-[var(--border)] bg-[var(--bg-base)] flex-shrink-0 flex items-center justify-between">
         <span className="text-xs text-[var(--text-3)]">
           <span className="text-[var(--text-1)] font-bold tabular-nums">{filtered.length}</span>
           {' / '}
@@ -36,21 +32,20 @@ export function TokenFeed() {
           {' tokens'}
         </span>
         <button
-          onClick={() => setShowFilters((v) => !v)}
-          className={`text-xs px-2.5 py-1 rounded-md border transition-colors flex items-center gap-1.5 ${
-            filterActive
-              ? 'border-[var(--accent)] text-[var(--accent)] bg-[var(--accent-dim)]'
-              : 'border-[var(--border)] text-[var(--text-3)] hover:text-[var(--text-2)] hover:border-[var(--border-strong)]'
+          onClick={() => setShowFilter(!showFilter)}
+          className={`text-xs px-2 py-0.5 rounded transition-colors ${
+            showFilter
+              ? 'text-[var(--accent)] bg-[var(--accent)]/10 border border-[var(--accent)]/30'
+              : 'text-[var(--text-3)] hover:text-[var(--text-1)]'
           }`}
-          aria-expanded={showFilters}
         >
-          <span aria-hidden>⚙</span>
-          Filters{filterActive ? ' •' : ''}
+          ⚙ Filters
         </button>
       </div>
 
-      {showFilters && <FilterPanel onClose={() => setShowFilters(false)} />}
+      {showFilter && <FilterPanel onClose={() => setShowFilter(false)} />}
 
+      {/* Feed */}
       <div className="flex-1 overflow-y-auto">
         {filtered.map((token) => (
           <TokenRow
@@ -72,7 +67,7 @@ export function TokenFeed() {
         {tokens.length > 0 && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-2 text-center px-8">
             <span className="text-2xl">🚫</span>
-            <p className="text-sm text-[var(--text-3)]">No tokens match your filters</p>
+            <p className="text-sm text-[var(--text-2)]">No tokens match your filters</p>
             <p className="text-xs text-[var(--text-3)]">{tokens.length} detected, all filtered out</p>
           </div>
         )}

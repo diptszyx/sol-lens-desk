@@ -24,14 +24,34 @@ const SLIPPAGE_OPTIONS = [
 ]
 
 const SOL_PRESETS = ['0.1', '0.5', '1', '2']
+const USDC_PRESETS = ['10', '50', '100', '500']
 const QUOTE_DEBOUNCE_MS = 600
+
+const SOL_MINT = 'So11111111111111111111111111111111111111112'
+const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB'
+
+interface PayToken {
+  mint: string
+  symbol: string
+  decimals: number
+  presets: string[]
+}
+
+const PAY_TOKENS: PayToken[] = [
+  { mint: SOL_MINT, symbol: 'SOL', decimals: 9, presets: SOL_PRESETS },
+  { mint: USDC_MINT, symbol: 'USDC', decimals: 6, presets: USDC_PRESETS },
+  { mint: USDT_MINT, symbol: 'USDT', decimals: 6, presets: USDC_PRESETS },
+]
 
 export function TradePanel({ token }: Props) {
   const address = useWalletStore((s) => s.address)
 
+  const [payToken, setPayToken] = useState<PayToken>(PAY_TOKENS[0]!)
   const [amount, setAmount] = useState('0.1')
   const [slippageBps, setSlippageBps] = useState(100)
   const [state, setState] = useState<TradeState>({ tag: 'idle' })
+  const [showPayDropdown, setShowPayDropdown] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const quoteAbortRef = useRef(0)
 
@@ -39,7 +59,7 @@ export function TradePanel({ token }: Props) {
   const amountNum = parseFloat(amount)
   const canTrade = !!address && amountNum > 0
 
-  // Auto-quote whenever amount, slippage, or token changes.
+  // Auto-quote whenever amount, slippage, payment token, or token changes.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
 
@@ -52,6 +72,7 @@ export function TradePanel({ token }: Props) {
     const id = ++quoteAbortRef.current
     debounceRef.current = setTimeout(async () => {
       try {
+        const amountLamports = Math.floor(amountNum * Math.pow(10, payToken.decimals))
         const res = await invoke<{
           serialized_tx: string
           out_amount: number
@@ -60,14 +81,15 @@ export function TradePanel({ token }: Props) {
           provider: string
         }>('build_swap_transaction', {
           params: {
+            input_mint: payToken.mint,
             output_mint: token.mint,
-            amount_lamports: Math.floor(amountNum * 1e9),
+            amount_lamports: amountLamports,
             slippage_bps: slippageBps,
             user_public_key: address!,
             output_decimals: token.decimals,
           },
         })
-        if (id !== quoteAbortRef.current) return // stale
+        if (id !== quoteAbortRef.current) return
         setState({
           tag: 'ready',
           serializedTx: res.serialized_tx,
@@ -85,15 +107,21 @@ export function TradePanel({ token }: Props) {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [amount, slippageBps, token.mint, canTrade])
+  }, [amount, slippageBps, payToken.mint, token.mint, canTrade])
 
   // Reset when switching tokens.
   useEffect(() => {
     quoteAbortRef.current++
     setState({ tag: 'idle' })
-    setAmount('0.1')
+    setAmount(payToken.presets[0]!)
     setSlippageBps(100)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token.mint])
+
+  // Reset amount when switching payment token
+  useEffect(() => {
+    setAmount(payToken.presets[0]!)
+  }, [payToken.mint])
 
   async function handleBuy() {
     if (state.tag !== 'ready' || !address) return
@@ -112,12 +140,11 @@ export function TradePanel({ token }: Props) {
       if (txResult.status === 'confirmed' && token.price_usd != null) {
         const slPct = usePortfolioStore.getState().globalStopLossPct
 
-        // Position creation is owned by the `buy_confirmed` listener in the store.
         emit('buy_confirmed', {
           mint: token.mint,
           symbol: displaySymbol,
           decimals: token.decimals,
-          amount_sol: amountNum,
+          amount_sol: payToken.mint === SOL_MINT ? amountNum : 0,
           amount_tokens: outAmountUi,
           entry_price_usd: token.price_usd,
           tx_signature: txResult.signature,
@@ -125,8 +152,8 @@ export function TradePanel({ token }: Props) {
 
         invoke('start_price_tracking', {
           mint: token.mint,
-          entryPriceUsd: token.price_usd,
-          stopLossPct: slPct,
+          entry_price_usd: token.price_usd,
+          stop_loss_pct: slPct,
         }).catch(console.error)
       }
     } catch (err) {
@@ -137,7 +164,7 @@ export function TradePanel({ token }: Props) {
   const isHighImpact = state.tag === 'ready' && state.priceImpact > 5
 
   return (
-    <div className="flex flex-col gap-3 p-4 overflow-y-auto">
+    <div className="flex flex-col gap-2.5 p-3 overflow-y-auto">
       {/* Wallet missing warning */}
       {!address && (
         <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/20 px-3 py-2 text-xs text-yellow-400">
@@ -149,8 +176,30 @@ export function TradePanel({ token }: Props) {
       <div className="rounded-xl bg-[var(--bg-surface)] border border-[var(--border)] p-3 space-y-2">
         <span className="text-[10px] font-semibold text-[var(--text-3)] uppercase tracking-widest">You pay</span>
         <div className="flex items-center gap-2">
-          <div className="bg-[var(--bg-elevated)] rounded-lg px-2.5 py-1.5 flex-shrink-0">
-            <span className="text-sm font-bold text-[var(--text-1)]">SOL</span>
+          <div className="relative">
+            <button
+              onClick={() => setShowPayDropdown(!showPayDropdown)}
+              disabled={state.tag === 'signing'}
+              className="bg-[var(--bg-elevated)] rounded-lg px-2.5 py-1.5 flex items-center gap-1 hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-50"
+            >
+              <span className="text-sm font-bold text-[var(--text-1)]">{payToken.symbol}</span>
+              <span className="text-[10px] text-[var(--text-3)]">▾</span>
+            </button>
+            {showPayDropdown && (
+              <div className="absolute top-full left-0 mt-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg overflow-hidden z-50 shadow-lg min-w-[80px]">
+                {PAY_TOKENS.map((pt) => (
+                  <button
+                    key={pt.mint}
+                    onClick={() => { setPayToken(pt); setShowPayDropdown(false) }}
+                    className={`w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--bg-surface)] transition-colors ${
+                      pt.mint === payToken.mint ? 'text-[var(--accent)]' : 'text-[var(--text-1)]'
+                    }`}
+                  >
+                    {pt.symbol}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <input
             type="number"
@@ -164,14 +213,14 @@ export function TradePanel({ token }: Props) {
           />
         </div>
         <div className="flex gap-1.5">
-          {SOL_PRESETS.map((p) => (
+          {payToken.presets.map((p) => (
             <button
               key={p}
               onClick={() => setAmount(p)}
               disabled={state.tag === 'signing'}
               className={`flex-1 rounded-md border py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
                 amount === p
-                  ? 'border-[var(--accent)] text-[var(--accent)] bg-[var(--accent-dim)]'
+                  ? 'border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10'
                   : 'border-[var(--border)] text-[var(--text-2)] hover:border-[var(--border-strong)] hover:text-[var(--text-1)]'
               }`}
             >
@@ -277,8 +326,8 @@ export function TradePanel({ token }: Props) {
               ? 'Getting best route…'
               : state.tag === 'ready'
                 ? isHighImpact
-                  ? `Buy ${amount} ◎ — high impact!`
-                  : `Buy ${amount} ◎`
+                  ? `Buy ${amount} ${payToken.symbol} — high impact!`
+                  : `Buy ${amount} ${payToken.symbol}`
                 : state.tag === 'error'
                   ? 'Retry'
                   : !address

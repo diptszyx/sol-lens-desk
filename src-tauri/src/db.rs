@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Mutex;
@@ -31,6 +31,19 @@ pub struct ClosedPosition {
     pub opened_at: i64,
     pub closed_at: i64,
     pub close_reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenPosition {
+    pub mint: String,
+    pub symbol: String,
+    pub decimals: i64,
+    pub entry_price_usd: f64,
+    pub amount_tokens: f64,
+    pub amount_sol_spent: f64,
+    pub stop_loss_pct: f64,
+    pub opened_at: i64,
+    pub tx_signature: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +99,18 @@ impl DbPool {
                 level INTEGER NOT NULL DEFAULT 1,
                 total_tokens_seen INTEGER NOT NULL DEFAULT 0,
                 total_trades INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS open_positions (
+                mint TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                decimals INTEGER NOT NULL,
+                entry_price_usd REAL NOT NULL,
+                amount_tokens REAL NOT NULL,
+                amount_sol_spent REAL NOT NULL,
+                stop_loss_pct REAL NOT NULL,
+                opened_at INTEGER NOT NULL,
+                tx_signature TEXT NOT NULL
             );
             ",
         )?;
@@ -223,5 +248,82 @@ impl DbPool {
             params![xp_delta, tokens_delta, trades_delta],
         )?;
         self.get_pet_state()
+    }
+
+    pub fn upsert_open_position(&self, p: &OpenPosition) -> anyhow::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO open_positions (mint, symbol, decimals, entry_price_usd, amount_tokens, amount_sol_spent, stop_loss_pct, opened_at, tx_signature)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(mint) DO UPDATE SET
+                symbol = excluded.symbol,
+                decimals = excluded.decimals,
+                entry_price_usd = excluded.entry_price_usd,
+                amount_tokens = excluded.amount_tokens,
+                amount_sol_spent = excluded.amount_sol_spent,
+                stop_loss_pct = excluded.stop_loss_pct,
+                opened_at = excluded.opened_at,
+                tx_signature = excluded.tx_signature",
+            params![
+                p.mint,
+                p.symbol,
+                p.decimals,
+                p.entry_price_usd,
+                p.amount_tokens,
+                p.amount_sol_spent,
+                p.stop_loss_pct,
+                p.opened_at,
+                p.tx_signature,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_open_position(&self, mint: &str) -> anyhow::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM open_positions WHERE mint = ?1", params![mint])?;
+        Ok(())
+    }
+
+    pub fn get_open_positions(&self) -> anyhow::Result<Vec<OpenPosition>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT mint, symbol, decimals, entry_price_usd, amount_tokens, amount_sol_spent, stop_loss_pct, opened_at, tx_signature
+             FROM open_positions",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(OpenPosition {
+                mint: row.get(0)?,
+                symbol: row.get(1)?,
+                decimals: row.get(2)?,
+                entry_price_usd: row.get(3)?,
+                amount_tokens: row.get(4)?,
+                amount_sol_spent: row.get(5)?,
+                stop_loss_pct: row.get(6)?,
+                opened_at: row.get(7)?,
+                tx_signature: row.get(8)?,
+            })
+        })?;
+        let mut result = Vec::new();
+        for row in rows {
+            result.push(row?);
+        }
+        Ok(result)
+    }
+
+    pub fn symbol_by_mint(&self, mint: &str) -> anyhow::Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        // Check open_positions first, then trades history
+        let result: Option<String> = conn
+            .query_row(
+                "SELECT symbol FROM open_positions WHERE mint = ?1
+                 UNION ALL
+                 SELECT symbol FROM trades WHERE mint = ?1
+                 LIMIT 1",
+                params![mint],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(result)
     }
 }

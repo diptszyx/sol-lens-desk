@@ -11,6 +11,7 @@ const QUOTE_TIMEOUT_MS: u64 = 800;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SwapParams {
+    pub input_mint: String,
     pub output_mint: String,
     pub amount_lamports: u64,
     pub slippage_bps: u32,
@@ -48,7 +49,7 @@ async fn quote_jupiter(http: &reqwest::Client, params: &SwapParams) -> anyhow::R
     let resp: serde_json::Value = http
         .get(JUPITER_QUOTE_URL)
         .query(&[
-            ("inputMint", SOL_MINT),
+            ("inputMint", params.input_mint.as_str()),
             ("outputMint", &params.output_mint),
             ("amount", &params.amount_lamports.to_string()),
             ("slippageBps", &params.slippage_bps.to_string()),
@@ -83,13 +84,13 @@ async fn quote_kamino(http: &reqwest::Client, params: &SwapParams) -> anyhow::Re
     let resp: serde_json::Value = http
         .get(KAMINO_SWAP_URL)
         .query(&[
-            ("tokenIn", SOL_MINT),
+            ("tokenIn", params.input_mint.as_str()),
             ("tokenOut", &params.output_mint),
             ("amountIn", &params.amount_lamports.to_string()),
             ("maxSlippageBps", &params.slippage_bps.to_string()),
             ("wallet", &params.user_public_key),
             ("includeSetupIxs", "true"),
-            ("wrapAndUnwrapSol", "true"),
+            ("wrapAndUnwrapSol", if params.input_mint == SOL_MINT { "true" } else { "false" }),
         ])
         .send()
         .await?

@@ -1,5 +1,7 @@
+import { useRef, useState, useEffect } from 'react'
 import { useFilterStore } from '../../store/filter'
-import { DEFAULT_FILTER, SCORE_PRESETS } from '../../types'
+import { useTokenFeedStore } from '../../store/tokenFeed'
+import { DEFAULT_FILTER, MAX_AGE_SEC, SCORE_PRESETS } from '../../types'
 import type { FilterConfig } from '../../types'
 
 const PRESET_CONFIGS: Record<keyof typeof SCORE_PRESETS, FilterConfig> = {
@@ -8,24 +10,73 @@ const PRESET_CONFIGS: Record<keyof typeof SCORE_PRESETS, FilterConfig> = {
   safe: { ...DEFAULT_FILTER, minScoreThreshold: SCORE_PRESETS.safe.threshold },
 }
 
+const DEBOUNCE_MS = 400
+
 interface NumFieldProps {
   label: string
   unit?: string
   value: number | null
   onChange: (v: number | null) => void
+  max?: number
 }
 
-function NumField({ label, unit, value, onChange }: NumFieldProps) {
+function NumField({ label, unit, value, onChange, placeholder = '∞', max }: NumFieldProps & { placeholder?: string }) {
+  const [local, setLocal] = useState<string>(value != null ? String(value) : '')
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const flush = () => {
+    if (timerRef.current != null) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }
+
+  useEffect(() => {
+    return () => flush()
+  }, [])
+
+  useEffect(() => {
+    setLocal(value != null ? String(value) : '')
+  }, [value])
+
+  const apply = (raw: string) => {
+    if (raw === '') {
+      onChange(null)
+    } else {
+      const n = Number(raw)
+      if (!isNaN(n)) {
+        onChange(max != null && n > max ? max : n)
+      }
+    }
+  }
+
+  const handleChange = (raw: string) => {
+    setLocal(raw)
+    flush()
+    if (raw !== '') {
+      timerRef.current = setTimeout(() => apply(raw), DEBOUNCE_MS)
+    }
+  }
+
+  const handleBlur = () => {
+    flush()
+    if (local !== '') {
+      apply(local)
+    }
+  }
+
   return (
     <label className="flex items-center justify-between gap-2 text-xs">
       <span className="text-[var(--text-2)]">{label}</span>
       <span className="flex items-center gap-1">
         <input
           type="number"
-          value={value ?? ''}
-          placeholder="—"
-          onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
-          className="w-20 rounded bg-[var(--bg-deep)] border border-[var(--border)] px-2 py-1 text-right font-mono text-[var(--text-1)] focus:border-[var(--accent)] outline-none"
+          value={local}
+          placeholder={placeholder}
+          max={max}
+          onChange={(e) => handleChange(e.target.value)}
+          onBlur={handleBlur}
+          className="w-20 rounded bg-[var(--bg-deep)] border border-[var(--border)] px-2 py-1 text-right font-mono text-[var(--text-1)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] outline-none"
         />
         {unit && <span className="text-[10px] text-[var(--text-3)] w-7">{unit}</span>}
       </span>
@@ -33,17 +84,12 @@ function NumField({ label, unit, value, onChange }: NumFieldProps) {
   )
 }
 
-function scoreColor(score: number): string {
-  if (score >= 70) return 'text-green-400'
-  if (score >= 40) return 'text-yellow-400'
-  return 'text-red-400'
-}
-
 export function FilterPanel({ onClose }: { onClose: () => void }) {
   const filter = useFilterStore((s) => s.filter)
   const activePreset = useFilterStore((s) => s.activePreset)
   const applyPreset = useFilterStore((s) => s.applyPreset)
   const set = useFilterStore((s) => s.set)
+  const clearTokens = useTokenFeedStore((s) => s.clearTokens)
 
   return (
     <div className="border-b border-[var(--border)] bg-[var(--bg-base)] px-4 py-3 space-y-3">
@@ -64,7 +110,10 @@ export function FilterPanel({ onClose }: { onClose: () => void }) {
         {Object.entries(SCORE_PRESETS).map(([key, preset]) => (
           <button
             key={key}
-            onClick={() => applyPreset(key as keyof typeof SCORE_PRESETS, PRESET_CONFIGS[key as keyof typeof SCORE_PRESETS])}
+            onClick={() => {
+              clearTokens()
+              applyPreset(key as keyof typeof SCORE_PRESETS, PRESET_CONFIGS[key as keyof typeof SCORE_PRESETS])
+            }}
             className={`text-[10px] px-2 py-1 rounded-full border transition-colors ${
               activePreset === key
                 ? 'border-[var(--accent)] text-[var(--accent)] bg-[var(--accent)]/10'
@@ -76,32 +125,9 @@ export function FilterPanel({ onClose }: { onClose: () => void }) {
         ))}
       </div>
 
-      <div className="space-y-1">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs text-[var(--text-2)] min-w-10">Score</span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={filter.minScoreThreshold}
-            onChange={(e) => set({ minScoreThreshold: Number(e.target.value) })}
-            className="flex-1 h-1.5 rounded-full appearance-none bg-[var(--bg-deep)] cursor-pointer
-              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5
-              [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--accent)] [&::-webkit-slider-thumb]:cursor-pointer
-              [&::-webkit-slider-thumb]:shadow-sm"
-            style={{
-              background: `linear-gradient(to right, var(--accent) 0%, var(--accent) ${filter.minScoreThreshold}%, var(--bg-deep) ${filter.minScoreThreshold}%, var(--bg-deep) 100%)`,
-            }}
-          />
-          <span className={`text-xs font-bold tabular-nums min-w-[2rem] ${scoreColor(filter.minScoreThreshold)}`}>
-            {filter.minScoreThreshold}
-          </span>
-        </div>
-      </div>
-
       <div className="grid gap-2">
-        <NumField label="Max age" unit="s" value={filter.maxAgeSec} onChange={(v) => set({ maxAgeSec: v })} />
-        <NumField label="Min liquidity" unit="SOL" value={filter.minLiquiditySol} onChange={(v) => set({ minLiquiditySol: v })} />
+        <NumField label={`Max age (≤${MAX_AGE_SEC}s)`} unit="s" value={filter.maxAgeSec} onChange={(v) => set({ maxAgeSec: v })} placeholder="∞" max={MAX_AGE_SEC} />
+        <NumField label="Min liquidity" unit="SOL" value={filter.minLiquiditySol} onChange={(v) => set({ minLiquiditySol: v })} placeholder="0 (any)" />
       </div>
 
       <div className="pt-2 border-t border-[var(--border)]">

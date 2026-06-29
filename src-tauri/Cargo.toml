@@ -17,6 +17,7 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 solana-client = "2"
 solana-sdk = "2"
 solana-transaction-status = "2"
+solana-account-decoder = "2"
 bs58 = "0.5"
 anyhow = "1"
 dotenvy = "0.15"
@@ -30,6 +31,7 @@ sha2 = "0.10"
 rand = "0.8"
 bip39 = { version = "2", features = ["rand"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
+open = "5"
 
 [features]
 default = []

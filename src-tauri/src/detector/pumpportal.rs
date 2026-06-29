@@ -34,7 +34,10 @@ struct PumpPortalEvent {
 pub async fn listen(tx: mpsc::Sender<RawTokenEvent>) -> Result<()> {
     loop {
         match try_listen(&tx).await {
-            Ok(_) => {}
+            Ok(_) => {
+                tracing::info!("PumpPortal WS closed cleanly. Reconnecting in 3s...");
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            }
             Err(e) => {
                 tracing::warn!("PumpPortal WS disconnected: {e}. Reconnecting in 5s...");
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -53,9 +56,22 @@ async fn try_listen(tx: &mpsc::Sender<RawTokenEvent>) -> Result<()> {
 
     tracing::info!("PumpPortal WS connected, listening for new tokens...");
 
-    while let Some(msg) = ws.next().await {
+    loop {
+        let msg = match tokio::time::timeout(std::time::Duration::from_secs(15), ws.next()).await {
+            Ok(Some(m)) => m,
+            Ok(None) => break, // stream closed cleanly
+            Err(_) => {
+                tracing::warn!("PumpPortal WS idle for 15s, reconnecting...");
+                return Err(anyhow::anyhow!("idle timeout"));
+            }
+        };
+
         let text = match msg? {
             tokio_tungstenite::tungstenite::Message::Text(t) => t,
+            tokio_tungstenite::tungstenite::Message::Ping(payload) => {
+                let _ = ws.send(tokio_tungstenite::tungstenite::Message::Pong(payload)).await;
+                continue;
+            }
             _ => continue,
         };
 

@@ -65,7 +65,7 @@ export function ExportModal({ onClose }: Props) {
           {stage === 'password' && (
             <div className="space-y-3">
               <p className="text-xs text-[var(--text-3)]">
-                Enter your password to reveal your seed phrase and private key.
+                Enter your password to decrypt your wallet keys. Seed phrase shown only if wallet was created or imported via mnemonic.
               </p>
               <input
                 ref={inputRef}

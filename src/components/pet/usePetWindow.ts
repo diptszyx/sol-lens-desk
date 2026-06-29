@@ -48,13 +48,14 @@ export function usePetWindow(): PetWindowApi {
     const maxX = () => (mon.current ? Math.max(0, mon.current.w - IDLE_W) : 0)
 
     async function init() {
+      if (cancelled) return
       const m = (await currentMonitor()) ?? (await primaryMonitor())
-      if (!m || cancelled) return
-      const scale = await win.scaleFactor()
-      mon.current = { w: m.size.width / scale, h: m.size.height / scale }
+      const scale = m ? await win.scaleFactor().catch(() => 1) : 1
+      mon.current = m
+        ? { w: m.size.width / scale, h: m.size.height / scale }
+        : { w: window.screen.width, h: window.screen.height }
       posX.current = Math.min(posX.current, maxX())
-      await win.setPosition(new LogicalPosition(posX.current, idleY()))
-
+      await win.setPosition(new LogicalPosition(posX.current, idleY())).catch(() => {})
       timer = setInterval(tick, TICK_MS)
     }
 

@@ -15,6 +15,7 @@
     "@solana/kit": "^6",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-store": "^2",
+    "lightweight-charts": "^5.2.0",
     "react": "^19",
     "react-dom": "^19",
     "zustand": "^5"

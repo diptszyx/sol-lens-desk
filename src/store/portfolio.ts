@@ -88,6 +88,9 @@ export function setupPortfolioEventListeners() {
     // Single source of truth for position creation — buyers only emit this event.
     if (state.positions.some((p) => p.mint === mint)) return
 
+    const openedAt = Date.now()
+    const stopLoss = state.globalStopLossPct
+
     state.addPosition({
       mint,
       symbol,
@@ -97,9 +100,9 @@ export function setupPortfolioEventListeners() {
       amount_sol_spent: amount_sol,
       current_price_usd: entry_price_usd,
       pnl_pct: 0,
-      opened_at: Date.now(),
+      opened_at: openedAt,
       tx_signature,
-      stop_loss_pct: state.globalStopLossPct,
+      stop_loss_pct: stopLoss,
     })
 
     invoke('log_trade', {
@@ -111,7 +114,21 @@ export function setupPortfolioEventListeners() {
       priceUsd: entry_price_usd,
       txSignature: tx_signature,
       status: 'confirmed',
-      createdAt: Date.now(),
+      createdAt: openedAt,
+    }).catch(console.error)
+
+    invoke('save_open_position', {
+      position: {
+        mint,
+        symbol,
+        decimals,
+        entry_price_usd,
+        amount_tokens,
+        amount_sol_spent: amount_sol,
+        stop_loss_pct: stopLoss,
+        opened_at: openedAt,
+        tx_signature,
+      },
     }).catch(console.error)
   })
 
@@ -149,6 +166,8 @@ export function setupPortfolioEventListeners() {
     }
 
     usePortfolioStore.getState().removePosition(mint)
+
+    invoke('remove_open_position', { mint }).catch(console.error)
   })
 
   listen<{
@@ -208,6 +227,8 @@ export function setupPortfolioEventListeners() {
     invoke('stop_price_tracking', { mint }).catch(console.error)
     closingMints.delete(mint)
 
+    invoke('remove_open_position', { mint }).catch(console.error)
+
     emit('position_closed', {
       mint,
       close_reason: 'stop_loss',
@@ -215,4 +236,51 @@ export function setupPortfolioEventListeners() {
       realized_pnl_pct,
     })
   })
+}
+
+export async function restoreOpenPositions() {
+  try {
+    const positions = await invoke<Array<{
+      mint: string
+      symbol: string
+      decimals: number
+      entry_price_usd: number
+      amount_tokens: number
+      amount_sol_spent: number
+      stop_loss_pct: number
+      opened_at: number
+      tx_signature: string
+    }>>('get_open_positions')
+
+    if (positions.length === 0) return
+
+    const state = usePortfolioStore.getState()
+    for (const p of positions) {
+      if (state.positions.some((pos) => pos.mint === p.mint)) continue
+
+      state.addPosition({
+        mint: p.mint,
+        symbol: p.symbol,
+        decimals: p.decimals,
+        entry_price_usd: p.entry_price_usd,
+        amount_tokens: p.amount_tokens,
+        amount_sol_spent: p.amount_sol_spent,
+        current_price_usd: p.entry_price_usd,
+        pnl_pct: 0,
+        opened_at: p.opened_at,
+        tx_signature: p.tx_signature,
+        stop_loss_pct: p.stop_loss_pct,
+      })
+
+      invoke('start_price_tracking', {
+        mint: p.mint,
+        entry_price_usd: p.entry_price_usd,
+        amount_tokens: p.amount_tokens,
+        decimals: p.decimals,
+        stop_loss_pct: p.stop_loss_pct,
+      }).catch(console.error)
+    }
+  } catch (err) {
+    console.error('[Portfolio] Failed to restore open positions:', err)
+  }
 }

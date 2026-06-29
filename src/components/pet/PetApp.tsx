@@ -5,8 +5,10 @@ import { CapybaraSvg } from '../notifications/CapybaraSvg'
 import { PetCard } from './PetCard'
 import { usePetWindow } from './usePetWindow'
 import { usePetStore } from '../../store/pet'
+import { useFilterStore } from '../../store/filter'
+import { matchesFilter } from '../../lib/filter'
 
-const BUBBLE_MS = 5000
+const AUTO_CARD_MS = 10000
 
 const BODY_ANIM: Record<string, string> = {
   idle:        'capy-bob 2s ease-in-out infinite',
@@ -21,63 +23,65 @@ const BODY_ANIM: Record<string, string> = {
 export function PetApp() {
   const { facing, openCard, closeCard } = usePetWindow()
   const [activeToken, setActiveToken] = useState<DetectedToken | null>(null)
-  const [bubble, setBubble] = useState(false)
-  const [hovering, setHovering] = useState(false)
-  const bubbleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [cardOpen, setCardOpen] = useState(false)
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const emotion = usePetStore((s) => s.emotion)
+  const hydrate = useFilterStore((s) => s.hydrate)
+
+  useEffect(() => { void hydrate() }, [hydrate])
+
+  // Keep stable refs to openCard/closeCard so the event listener never
+  // needs to be re-registered (avoids timer-clearing on re-render).
+  const openCardRef = useRef(openCard)
+  const closeCardRef = useRef(closeCard)
+  useEffect(() => { openCardRef.current = openCard }, [openCard])
+  useEffect(() => { closeCardRef.current = closeCard }, [closeCard])
+
+  // Stable ref to the current filter config so the listener can read it
+  // without being in the dep array.
+  const filterRef = useRef(useFilterStore.getState().filter)
+  useEffect(() => {
+    return useFilterStore.subscribe((s) => { filterRef.current = s.filter })
+  }, [])
 
   useEffect(() => {
     let unlisten: (() => void) | null = null
     listen<DetectedToken>('token_detected', (e) => {
+      // Only alert + show card if token passes the active filter config.
+      if (!matchesFilter(e.payload, filterRef.current)) return
+
       setActiveToken(e.payload)
-      setBubble(true)
-      if (bubbleTimer.current) clearTimeout(bubbleTimer.current)
-      bubbleTimer.current = setTimeout(() => setBubble(false), BUBBLE_MS)
+      setCardOpen(true)
+      openCardRef.current()
+
+      if (autoTimer.current) clearTimeout(autoTimer.current)
+      autoTimer.current = setTimeout(() => {
+        setCardOpen(false)
+        closeCardRef.current()
+      }, AUTO_CARD_MS)
     }).then((fn) => { unlisten = fn })
     return () => {
       unlisten?.()
-      if (bubbleTimer.current) clearTimeout(bubbleTimer.current)
+      if (autoTimer.current) clearTimeout(autoTimer.current)
     }
-  }, [])
+  }, []) // stable — uses refs for everything mutable
 
-  function handleEnter() {
-    setHovering(true)
-    openCard()
-  }
-
-  function handleLeave() {
-    setHovering(false)
-    closeCard()
-  }
-
-  const symbol = activeToken?.symbol ?? activeToken?.mint.slice(0, 6)
-  const bodyAnim = hovering ? 'none' : (BODY_ANIM[emotion] ?? BODY_ANIM.idle)
+  const bodyAnim = cardOpen ? 'none' : (BODY_ANIM[emotion] ?? BODY_ANIM.idle)
 
   return (
     <div
-      onMouseEnter={handleEnter}
-      onMouseLeave={handleLeave}
       className="flex h-screen w-screen select-none flex-col items-center justify-end gap-2 px-3 pb-1"
       style={{ background: 'transparent' }}
     >
-      {hovering && (
+      {cardOpen && (
         <div className="w-full">
           {activeToken ? (
             <PetCard token={activeToken} />
           ) : (
-            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 text-center text-xs text-[var(--text-3)] shadow-2xl">
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-4 text-center text-xs text-[var(--text-2)] shadow-2xl">
               Waiting for new tokens…
             </div>
           )}
-        </div>
-      )}
-
-      {!hovering && bubble && activeToken && (
-        <div className="relative max-w-[200px] rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] px-3 py-1.5 shadow-xl">
-          <p className="text-xs font-bold text-[var(--text-1)]">
-            🚨 New <span className="text-[var(--accent)]">${symbol}</span>
-          </p>
-          <div className="absolute -bottom-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-b border-r border-[var(--border)] bg-[var(--bg-surface)]" />
         </div>
       )}
 

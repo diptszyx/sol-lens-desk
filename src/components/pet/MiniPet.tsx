@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePetStore, type PetEmotion } from '../../store/pet'
 import { CapybaraSvg } from '../notifications/CapybaraSvg'
 
@@ -28,6 +28,18 @@ export function MiniPet() {
   const level = usePetStore((s) => s.level)
   const [expanded, setExpanded] = useState(false)
   const [levelUp, setLevelUp] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!expanded) return
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setExpanded(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [expanded])
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -43,7 +55,7 @@ export function MiniPet() {
   const xpProgress = Math.min(((xp - levelXpStart) / (xpForLevel - levelXpStart)) * 100, 100)
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <button
         onClick={() => setExpanded((v) => !v)}
         className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)] hover:border-[var(--accent)] transition-colors"
@@ -68,11 +80,9 @@ export function MiniPet() {
       </button>
 
       {expanded && (
-        <div className="absolute bottom-full mb-2 left-0 w-48 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3 shadow-2xl z-50">
+        <div className="absolute top-full mt-2 right-0 w-48 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] p-3 shadow-2xl z-50">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-[var(--text-1)]">
-              {emotion === 'idle' ? 'Chillin\'' : emotion.charAt(0).toUpperCase() + emotion.slice(1)}
-            </span>
+            <span className="text-xs font-bold text-[var(--text-1)]">Capybara</span>
             <span className="text-[10px] text-[var(--accent)] font-bold">Lv.{level}</span>
           </div>
           <div className="space-y-1">

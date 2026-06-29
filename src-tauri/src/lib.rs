@@ -6,6 +6,11 @@ mod price_tracker;
 mod rpc;
 mod wallet;
 
+#[tauri::command]
+fn open_url(url: String) {
+    let _ = open::that(url);
+}
+
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -80,6 +85,11 @@ pub fn run() {
                 detector::pumpportal::listen(tx1).await.ok();
             });
 
+            // Warm up SOL price cache before first token arrives.
+            tauri::async_runtime::spawn(async move {
+                enricher::get_sol_price_usd().await;
+            });
+
             let mut pipeline = detector::pipeline::Pipeline::new(rx, app.handle().clone());
             tauri::async_runtime::spawn(async move {
                 pipeline.run().await;
@@ -114,6 +124,9 @@ pub fn run() {
             commands::history::record_closed_position,
             commands::history::get_closed_positions,
             commands::history::get_trade_history,
+            commands::positions::get_open_positions,
+            commands::positions::save_open_position,
+            commands::positions::remove_open_position,
             wallet::get_wallet_status,
             wallet::create_wallet,
             wallet::import_wallet,
@@ -121,6 +134,9 @@ pub fn run() {
             wallet::lock_wallet,
             wallet::sign_transaction,
             wallet::export_wallet,
+            rpc::get_sol_balance,
+            rpc::get_spl_balances,
+            open_url,
         ])
         .run(tauri::generate_context!())
         .expect("error running app");

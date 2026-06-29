@@ -108,12 +108,12 @@ async fn try_run_ws(
 
                 let sol_price = enricher::get_sol_price_usd().await;
 
-                let Some(price) = (match (event.v_sol_in_curve, event.v_tokens_in_curve) {
-                    (Some(s), Some(t)) if t > 0.0 => Some((s / t) * sol_price),
+                let Some(price) = (match (event.v_sol_in_curve, event.v_tokens_in_curve, sol_price) {
+                    (Some(s), Some(t), Some(sp)) if t > 0.0 => Some((s / t) * sp),
                     _ => None,
                 }) else { continue };
 
-                let market_cap_usd = event.market_cap_sol.map(|mc| mc * sol_price);
+                let market_cap_usd = event.market_cap_sol.zip(sol_price).map(|(mc, sp)| mc * sp);
 
                 // Snapshot entry/SL under a short read lock, then drop it
                 let (entry_price, sl_pct) = {

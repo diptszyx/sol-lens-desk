@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { DEFAULT_FILTER, SCORE_PRESETS, type FilterConfig } from '../types'
+import { DEFAULT_FILTER, MAX_AGE_SEC, SCORE_PRESETS, type FilterConfig } from '../types'
 
 const FILE = 'sol-lens.settings.json'
 const KEY = 'filter'
@@ -10,36 +10,19 @@ async function tauriStore() {
 }
 
 async function persist(f: FilterConfig): Promise<void> {
-  try {
-    const s = await tauriStore()
-    await s.set(KEY, f)
-    await s.save()
-    return
-  } catch {
-    /* not in Tauri — fall through */
-  }
-  try {
-    localStorage.setItem(KEY, JSON.stringify(f))
-  } catch {
-    /* ignore */
-  }
+  const s = await tauriStore()
+  await s.set(KEY, f)
+  await s.save()
 }
 
 async function loadSaved(): Promise<FilterConfig | null> {
   try {
     const s = await tauriStore()
     const v = await s.get<FilterConfig>(KEY)
-    if (v) return v
+    return v ?? null
   } catch {
-    /* fall through */
+    return null
   }
-  try {
-    const raw = localStorage.getItem(KEY)
-    if (raw) return JSON.parse(raw) as FilterConfig
-  } catch {
-    /* ignore */
-  }
-  return null
 }
 
 interface FilterStore {
@@ -59,12 +42,15 @@ export const useFilterStore = create<FilterStore>((set, get) => ({
   activePreset: null,
   set: (patch) => {
     const next = { ...get().filter, ...patch }
+    if (next.maxAgeSec != null && next.maxAgeSec > MAX_AGE_SEC) next.maxAgeSec = MAX_AGE_SEC
     set({ filter: next, activePreset: null })
     void persist(next)
   },
   applyPreset: (preset, config) => {
-    set({ filter: config, activePreset: preset })
-    void persist(config)
+    const clamped = { ...config }
+    if (clamped.maxAgeSec != null && clamped.maxAgeSec > MAX_AGE_SEC) clamped.maxAgeSec = MAX_AGE_SEC
+    set({ filter: clamped, activePreset: preset })
+    void persist(clamped)
   },
   clearPreset: () => {
     set({ activePreset: null })
@@ -76,6 +62,14 @@ export const useFilterStore = create<FilterStore>((set, get) => ({
   hydrate: async () => {
     const saved = await loadSaved()
     const merged = saved ? { ...DEFAULT_FILTER, ...saved } : DEFAULT_FILTER
-    set({ filter: merged, hydrated: true })
+    if (merged.maxAgeSec != null && merged.maxAgeSec > MAX_AGE_SEC) merged.maxAgeSec = MAX_AGE_SEC
+    const entries = Object.entries(SCORE_PRESETS) as [keyof typeof SCORE_PRESETS, { threshold: number }][]
+    const [matchedPreset, matchedConfig] = entries
+      .reduce((best, cur) =>
+        Math.abs(cur[1].threshold - merged.minScoreThreshold) < Math.abs(best[1].threshold - merged.minScoreThreshold)
+          ? cur : best
+      )
+    merged.minScoreThreshold = matchedConfig.threshold
+    set({ filter: merged, hydrated: true, activePreset: matchedPreset })
   },
 }))

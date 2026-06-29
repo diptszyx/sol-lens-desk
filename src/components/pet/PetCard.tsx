@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
 import { emitTo, listen } from '@tauri-apps/api/event'
+import { invoke } from '@tauri-apps/api/core'
 import type { DetectedToken, PetBuyResult } from '../../types'
 import { PET_BUY_REQUEST, PET_BUY_RESULT } from '../../types'
 import { formatAge, formatSol } from '../../lib/format'
+
+function openUrl(url: string) {
+  invoke('open_url', { url }).catch(() => {})
+}
 
 const SOL_PRESETS = [0.1, 0.5, 1]
 const SLIPPAGE_BPS = 100 // 1% — sane default for fast meme entries
@@ -82,13 +87,38 @@ export function PetCard({ token }: { token: DetectedToken }) {
   return (
     <div className="w-full rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] p-3 shadow-2xl">
       {/* Header */}
-      <div className="mb-1 flex items-baseline justify-between">
+      <div className="mb-1 flex items-center justify-between gap-2">
         <h2 className="truncate font-mono text-base font-bold text-[var(--text-1)]">
           ${displaySymbol}
         </h2>
-        <span className="text-[10px] text-[var(--text-3)]">
-          {token.source === 'pump_fun' ? 'pump.fun' : token.source}
-        </span>
+        <div className="flex items-center gap-1 shrink-0">
+          {token.twitter_url && (
+            <button
+              onClick={() => openUrl(token.twitter_url!)}
+              className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--text-3)] hover:text-[#1d9bf0] hover:border-[#1d9bf0] transition-colors"
+              title="Twitter"
+            >X</button>
+          )}
+          {token.telegram_url && (
+            <button
+              onClick={() => openUrl(token.telegram_url!)}
+              className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--text-3)] hover:text-[#2aabee] hover:border-[#2aabee] transition-colors"
+              title="Telegram"
+            >TG</button>
+          )}
+          {token.website_url && (
+            <button
+              onClick={() => openUrl(token.website_url!)}
+              className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--text-3)] hover:text-[var(--text-1)] hover:border-[var(--text-1)] transition-colors"
+              title="Website"
+            >WEB</button>
+          )}
+          <button
+            onClick={() => openUrl(`https://pump.fun/coin/${token.mint}`)}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-[var(--border)] text-[var(--text-3)] hover:text-[var(--accent)] hover:border-[var(--accent)] transition-colors"
+            title="pump.fun"
+          >pump</button>
+        </div>
       </div>
 
       {/* Score line */}
@@ -111,7 +141,7 @@ export function PetCard({ token }: { token: DetectedToken }) {
         <Stat label="Price" value={fmtPrice(token.price_usd)} />
         <Stat label="Mkt Cap" value={fmtUsd(token.market_cap_usd)} />
         <Stat label="Liquidity" value={`${formatSol(token.liquidity_sol)} ◎`} />
-        <Stat label="Age" value={formatAge(token.age_seconds)} />
+        <Stat label="Age" value={formatAge(Math.floor((Date.now() - token.detected_at) / 1000))} />
       </div>
 
       {/* Trade */}

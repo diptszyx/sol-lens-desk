@@ -1,4 +1,5 @@
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use crate::detector::RawTokenEvent;
@@ -7,10 +8,20 @@ use crate::rpc;
 const PUMP_TOTAL_SUPPLY: f64 = 1_000_000_000.0;
 const PUMP_INIT_VTOKENS: f64 = 1_073_000_000.0;
 const PUMP_GRAD_RESERVE: f64 = 206_900_000.0;
-
-const FALLBACK_SOL_USD: f64 = 150.0;
+// pump.fun initialises bonding curves with 30 virtual SOL for AMM pricing.
+// Real deposited SOL = vSolInBondingCurve - PUMP_INIT_VSOL.
+const PUMP_INIT_VSOL: f64 = 30.0;
 
 static SOL_PRICE_CACHE: Mutex<Option<(f64, Instant)>> = Mutex::new(None);
+static SOL_PRICE_WARN_LOGGED: AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScoreBreakdown {
+    pub dev_hold_safety: u32,
+    pub bonding_curve_signal: u32,
+    pub dev_buy_signal: u32,
+    pub socials_signal: u32,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenInfo {
@@ -31,42 +42,50 @@ pub struct TokenInfo {
     pub bonding_curve_pct: Option<f64>,
     pub dev_buy_sol: Option<f64>,
     pub has_socials: Option<bool>,
+    pub twitter_url: Option<String>,
+    pub telegram_url: Option<String>,
+    pub website_url: Option<String>,
     pub mint_authority_revoked: bool,
     pub freeze_authority_revoked: bool,
     pub score: u8,
+    pub score_breakdown: ScoreBreakdown,
 }
 
-pub(crate) async fn get_sol_price_usd() -> f64 {
+pub(crate) async fn get_sol_price_usd() -> Option<f64> {
     {
         if let Ok(cache) = SOL_PRICE_CACHE.lock() {
             if let Some((price, ts)) = *cache {
                 if ts.elapsed() < Duration::from_secs(30) {
-                    return price;
+                    return Some(price);
                 }
             }
         }
     }
 
-    let url = "https://api.jup.ag/price/v2?ids=So11111111111111111111111111111111111111112";
+    let url = "https://api.jup.ag/tokens/v2/search?query=So11111111111111111111111111111111111111112";
     if let Ok(resp) = reqwest::get(url).await {
         if let Ok(json) = resp.json::<serde_json::Value>().await {
-            if let Some(price_str) = json["data"]["So11111111111111111111111111111111111111112"]["price"].as_str() {
-                if let Ok(price) = price_str.parse::<f64>() {
-                    if let Ok(mut cache) = SOL_PRICE_CACHE.lock() {
-                        *cache = Some((price, Instant::now()));
-                    }
-                    return price;
+            if let Some(price) = json[0]["usdPrice"].as_f64() {
+                if let Ok(mut cache) = SOL_PRICE_CACHE.lock() {
+                    *cache = Some((price, Instant::now()));
                 }
+                SOL_PRICE_WARN_LOGGED.store(false, Ordering::Relaxed);
+                return Some(price);
             }
         }
     }
 
     if let Ok(cache) = SOL_PRICE_CACHE.lock() {
-        if let Some((price, _)) = *cache {
-            return price;
+        if let Some((price, ts)) = *cache {
+            tracing::warn!("Jupiter price fetch failed — using stale SOL price ${price:.2} ({:.0}s old)", ts.elapsed().as_secs());
+            return Some(price);
         }
     }
-    FALLBACK_SOL_USD
+
+    if !SOL_PRICE_WARN_LOGGED.swap(true, Ordering::Relaxed) {
+        tracing::warn!("SOL price unavailable — USD values will be None");
+    }
+    None
 }
 
 pub async fn enrich(event: &RawTokenEvent, rpc_url: &str) -> Option<TokenInfo> {
@@ -83,26 +102,28 @@ pub async fn enrich(event: &RawTokenEvent, rpc_url: &str) -> Option<TokenInfo> {
             Err(_) => (true, true),
         };
 
-    let sol_price = get_sol_price_usd().await;
-    let mut token = build_from_event(mint, event, sol_price).await;
+    let sol_price_opt = get_sol_price_usd().await;
+    let mut token = build_from_event(mint, event, sol_price_opt).await;
     token.mint_authority_revoked = mint_authority_revoked;
     token.freeze_authority_revoked = freeze_authority_revoked;
-    token.score = compute_score(&token);
+    let (score, breakdown) = compute_score(&token);
+    token.score = score;
+    token.score_breakdown = breakdown;
     Some(token)
 }
 
-async fn build_from_event(mint: &str, event: &RawTokenEvent, sol_price: f64) -> TokenInfo {
+async fn build_from_event(mint: &str, event: &RawTokenEvent, sol_price: Option<f64>) -> TokenInfo {
     let v_sol = event.v_sol_in_curve;
     let v_tokens = event.v_tokens_in_curve;
 
-    let liquidity_sol = v_sol.unwrap_or(0.0);
+    let liquidity_sol = v_sol.map(|s| (s - PUMP_INIT_VSOL).max(0.0)).unwrap_or(0.0);
 
-    let price_usd = match (v_sol, v_tokens) {
-        (Some(s), Some(t)) if t > 0.0 => Some((s / t) * sol_price),
+    let price_usd = match (v_sol, v_tokens, sol_price) {
+        (Some(s), Some(t), Some(sp)) if t > 0.0 => Some((s / t) * sp),
         _ => None,
     };
 
-    let market_cap_usd = event.market_cap_sol.map(|mc| mc * sol_price);
+    let market_cap_usd = event.market_cap_sol.zip(sol_price).map(|(mc, sp)| mc * sp);
 
     let dev_hold_pct = event
         .dev_token_amount
@@ -113,9 +134,16 @@ async fn build_from_event(mint: &str, event: &RawTokenEvent, sol_price: f64) -> 
         pct.clamp(0.0, 100.0)
     });
 
-    let has_socials = match &event.uri {
-        Some(uri) => fetch_has_socials(uri).await,
+    let socials = match &event.uri {
+        Some(uri) => fetch_socials(uri).await,
         None => None,
+    };
+    let (has_socials, twitter_url, telegram_url, website_url) = match socials {
+        Some((tw, tg, ws)) => {
+            let has = tw.is_some() || tg.is_some() || ws.is_some();
+            (Some(has), tw, tg, ws)
+        }
+        None => (None, None, None, None),
     };
 
     TokenInfo {
@@ -136,57 +164,85 @@ async fn build_from_event(mint: &str, event: &RawTokenEvent, sol_price: f64) -> 
         bonding_curve_pct,
         dev_buy_sol: event.initial_sol,
         has_socials,
+        twitter_url,
+        telegram_url,
+        website_url,
         mint_authority_revoked: true,
         freeze_authority_revoked: true,
         score: 0,
+        score_breakdown: ScoreBreakdown {
+            dev_hold_safety: 0,
+            bonding_curve_signal: 0,
+            dev_buy_signal: 0,
+            socials_signal: 0,
+        },
     }
 }
 
-fn compute_score(token: &TokenInfo) -> u8 {
-    let mut safety: u8 = 0;
-    let mut signal: u8 = 0;
+fn compute_score(token: &TokenInfo) -> (u8, ScoreBreakdown) {
+    let mut dev_hold_safety: u32 = 0;
+    let mut bonding_curve_signal: u32 = 0;
+    let mut dev_buy_signal: u32 = 0;
+    let mut socials_signal: u32 = 0;
 
+    // max 40
     if let Some(dhp) = token.dev_hold_pct {
         if dhp < 5.0 {
-            safety += 30;
+            dev_hold_safety = 40;
         } else if dhp < 10.0 {
-            safety += 15;
+            dev_hold_safety = 20;
         }
     }
 
+    // max 30
     if let Some(bcp) = token.bonding_curve_pct {
         if bcp >= 30.0 && bcp < 50.0 {
-            signal += 25;
+            bonding_curve_signal = 30;
         } else if bcp >= 50.0 && bcp < 70.0 {
-            signal += 15;
+            bonding_curve_signal = 20;
         } else if bcp >= 70.0 {
-            signal += 5;
+            bonding_curve_signal = 5;
         }
     }
 
+    // max 20
     if let Some(dbs) = token.dev_buy_sol {
         if dbs >= 1.0 {
-            signal += 15;
+            dev_buy_signal = 20;
         } else if dbs >= 0.5 {
-            signal += 8;
+            dev_buy_signal = 10;
         }
     }
 
+    // max 10
     if token.has_socials == Some(true) {
-        signal += 10;
+        socials_signal = 10;
     }
 
-    safety + signal
+    let breakdown = ScoreBreakdown {
+        dev_hold_safety,
+        bonding_curve_signal,
+        dev_buy_signal,
+        socials_signal,
+    };
+
+    let score = (dev_hold_safety + bonding_curve_signal + dev_buy_signal + socials_signal) as u8;
+    (score, breakdown)
 }
 
-async fn fetch_has_socials(uri: &str) -> Option<bool> {
+async fn fetch_socials(uri: &str) -> Option<(Option<String>, Option<String>, Option<String>)> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .ok()?;
     let json: serde_json::Value = client.get(uri).send().await.ok()?.json().await.ok()?;
-    let has = ["twitter", "telegram", "website"]
-        .iter()
-        .any(|k| json.get(k).and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty()));
-    Some(has)
+
+    let extract = |key: &str| -> Option<String> {
+        json.get(key)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+    };
+
+    Some((extract("twitter"), extract("telegram"), extract("website")))
 }

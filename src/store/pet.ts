@@ -2,7 +2,10 @@ import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { usePortfolioStore } from './portfolio'
+import { useFilterStore } from './filter'
+import { matchesFilter } from '../lib/filter'
 import { DEFAULT_SL_PCT } from '../types'
+import type { DetectedToken } from '../types'
 
 export type PetEmotion =
   | 'idle'
@@ -111,7 +114,10 @@ export function setupPetEventListeners() {
   if (petEventWired) return
   petEventWired = true
 
-  listen('token_detected', () => {
+  listen<DetectedToken>('token_detected', (event) => {
+    const filter = useFilterStore.getState().filter
+    if (!matchesFilter(event.payload, filter)) return
+
     const store = usePetStore.getState()
     store.setEmotion('alert')
     store.incrementTokensSeen()

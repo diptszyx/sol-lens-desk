@@ -1,15 +1,19 @@
 :root {
-  --bg-deep:    #07070f;
-  --bg-base:    #0c0c1a;
-  --bg-surface: #141426;
-  --bg-elevated: #1e1e34;
-  --text-1: #f5f5ff;
-  --text-2: #c0c0e0;
-  --text-3: #8080aa;
-  --border: rgba(255,255,255,0.10);
-  --border-strong: rgba(255,255,255,0.18);
-  --accent:    #c8f135;
-  --accent-dim: rgba(200,241,53,0.12);
+  --bg-deep:     oklch(7%  0.02 265);
+  --bg-base:     oklch(11% 0.02 265);
+  --bg-surface:  oklch(16% 0.02 265);
+  --bg-elevated: oklch(21% 0.02 265);
+  --text-1: oklch(96% 0.01 265);
+  --text-2: oklch(80% 0.02 265);
+  --text-3: oklch(56% 0.02 265);
+  --border:       oklch(30% 0.03 265);
+  --border-strong:oklch(40% 0.03 265);
+  --accent:     #00ff88;
+  --accent-dim: rgba(0, 255, 136, 0.12);
+  --accent-purple: #9945FF;
+  --accent-purple-dim: rgba(153,69,255,0.14);
+  --brand-gradient: linear-gradient(135deg, #9945FF 0%, #00ff88 100%);
+  --glow-purple: rgba(153,69,255,0.45);
   --positive:  #4ade80;
   --negative:  #f87171;
 }
