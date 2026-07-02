@@ -1,5 +1,5 @@
 import { usePetStore } from '../../store/pet'
-import { CapybaraSvg } from '../notifications/CapybaraSvg'
+import { PetSprite } from './PetSprite'
 
 const LEVEL_THRESHOLDS = [0, 500, 2000]
 const LEVEL_NAMES = ['', 'Rookie', 'Veteran', 'Legend']
@@ -33,7 +33,7 @@ function PetPlaceholder({ index, active }: { index: number; active: boolean }) {
         className="w-20 h-20 rounded-lg flex items-center justify-center"
         style={{ background: `${color}18`, border: `1px solid ${color}40` }}
       >
-        <CapybaraSvg size={56} emotion="idle" />
+        <PetSprite emotion="idle" size={56} />
       </div>
       <div className="text-center">
         <p className="text-[11px] font-semibold text-[var(--text-1)]">{labels[index]}</p>

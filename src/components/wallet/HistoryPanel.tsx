@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { formatUsd } from '../../lib/format'
+import { useWalletStore } from '../../store/wallet'
 
 interface ClosedPosition {
   id: number | null
@@ -47,6 +47,7 @@ function formatTs(ms: number) {
 
 export function HistoryPanel({ compact }: { compact?: boolean }) {
   const [history, setHistory] = useState<ClosedPosition[]>([])
+  const activeAddress = useWalletStore((s) => s.activeAddress)
 
   async function load() {
     try {
@@ -57,11 +58,14 @@ export function HistoryPanel({ compact }: { compact?: boolean }) {
     }
   }
 
+  // Reload on mount, on close events, and whenever the active wallet switches
+  // (get_closed_positions is scoped to the active wallet server-side).
   useEffect(() => {
+    setHistory([])
     load()
     const unsub = listen('position_closed', () => { load() })
     return () => { unsub.then((fn) => fn()) }
-  }, [])
+  }, [activeAddress])
 
   const totalPnlUsd = history.reduce((sum, p) => sum + p.realized_pnl_usd, 0)
   const winCount = history.filter((p) => p.realized_pnl_pct >= 0).length
@@ -82,7 +86,7 @@ export function HistoryPanel({ compact }: { compact?: boolean }) {
       {/* Summary */}
       <div className={`border-b border-[var(--border)] flex-shrink-0 bg-[var(--bg-base)] ${compact ? 'px-3 py-2.5' : 'px-5 py-4'}`}>
         <p className="text-[10px] font-semibold uppercase tracking-widest text-[var(--accent)] mb-2.5">
-          {compact ? `HISTORY ${history.length}W/${history.length - winCount}L` : 'Trade History'}
+          {compact ? `HISTORY ${winCount}W/${history.length - winCount}L` : 'Trade History'}
         </p>
         <div className="grid grid-cols-3 gap-2">
           <div className={`rounded-lg bg-[var(--bg-deep)] ${compact ? 'px-2 py-1.5' : 'px-3 py-2.5'}`}>
@@ -98,7 +102,10 @@ export function HistoryPanel({ compact }: { compact?: boolean }) {
           <div className={`rounded-lg bg-[var(--bg-deep)] ${compact ? 'px-2 py-1.5' : 'px-3 py-2.5'}`}>
             <p className="text-[10px] text-[var(--text-3)] uppercase tracking-wide mb-0.5">PnL</p>
             <p className={`font-bold ${totalPnlUsd >= 0 ? 'text-green-400' : 'text-red-400'} ${compact ? 'text-xs' : 'text-sm'}`}>
-              {totalPnlUsd >= 0 ? '+' : ''}{formatUsd(totalPnlUsd)}
+              {/* formatUsd rounds to whole dollars (fine for market cap/volume) — these
+                  trades are cents-level, so toFixed(0) would flatten every real PnL to
+                  "$0"/"$-0" regardless of magnitude. */}
+              {totalPnlUsd >= 0 ? '+$' : '-$'}{Math.abs(totalPnlUsd).toFixed(2)}
             </p>
           </div>
         </div>

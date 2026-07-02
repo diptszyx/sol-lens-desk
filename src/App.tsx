@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { WalletGate } from './components/auth/WalletGate'
 import { TokenFeed } from './components/token-feed/TokenFeed'
@@ -15,8 +15,9 @@ import { PortfolioSurface } from './components/portfolio/PortfolioSurface'
 import { useTokenFeedStore } from './store/tokenFeed'
 import { usePetStore } from './store/pet'
 import { usePetTradeBridge } from './hooks/usePetTradeBridge'
+import { useHandleSell } from './hooks/useHandleSell'
 import { usePortfolioStore } from './store/portfolio'
-import { setupPortfolioEventListeners, restoreOpenPositions } from './store/portfolio'
+import { setupPortfolioEventListeners, restoreOpenPositions, loadGlobalSl } from './store/portfolio'
 import { setupPetEventListeners } from './store/pet'
 import { useWalletStore } from './store/wallet'
 import { formatAge, formatSol, formatPrice, formatUsd } from './lib/format'
@@ -56,6 +57,7 @@ function Header({ onExport }: { onExport: () => void }) {
 
 function TokenDetail() {
   const selected = useTokenFeedStore((s) => s.selected)
+  const [showMint, setShowMint] = useState(false)
 
   if (!selected) {
     return (
@@ -68,61 +70,62 @@ function TokenDetail() {
             ◎
           </span>
           <p className="text-sm font-medium text-[var(--text-2)]">Select a token</p>
-          <p className="text-xs text-[var(--text-3)]">
-            Click any token from the feed to view details and trade
-          </p>
+          <p className="text-xs text-[var(--text-3)]">Click any token from the feed to view details and trade</p>
         </div>
       </div>
     )
   }
 
   const displaySymbol = selected.symbol ?? selected.mint.slice(0, 8)
+  const isPumpFun = selected.source === 'pump_fun'
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Token header */}
-      <div className="px-4 py-3 border-b border-[var(--border)] flex-shrink-0 bg-[var(--bg-base)]">
+      {/* Header */}
+      <div className="px-4 pt-3 pb-2.5 border-b border-[var(--border)] flex-shrink-0 bg-[var(--bg-base)]">
         <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-0.5">
-              <span
-                className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                  selected.source === 'pump_fun' ? 'bg-green-400' : 'bg-blue-400'
-                }`}
-              />
-              <h2 className="font-mono font-bold text-xl text-[var(--text-1)] truncate">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isPumpFun ? 'bg-green-400' : 'bg-blue-400'}`} />
+              <h2 className="font-mono font-black text-lg text-[var(--text-1)] truncate leading-none">
                 ${displaySymbol}
               </h2>
-              <span className="text-xs text-[var(--text-3)] bg-[var(--bg-surface)] px-1.5 py-0.5 rounded flex-shrink-0">
-                {selected.source}
+              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
+                isPumpFun
+                  ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+                  : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+              }`}>
+                {isPumpFun ? 'pump.fun' : selected.source}
               </span>
             </div>
             {selected.name && (
-              <p className="text-xs text-[var(--text-2)] pl-4">{selected.name}</p>
+              <p className="text-[11px] text-[var(--text-3)] mt-0.5 pl-3.5 truncate">{selected.name}</p>
             )}
           </div>
-          <span className="text-xs text-[var(--text-3)] flex-shrink-0 mt-1">
-            {formatAge(Math.floor((Date.now() - selected.detected_at) / 1000))}
-          </span>
+          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+            <span className="text-[10px] text-[var(--text-3)] tabular-nums">
+              {formatAge(Math.floor((Date.now() - selected.detected_at) / 1000))}
+            </span>
+            {selected.price_usd != null && (
+              <span className="text-base font-black text-[var(--text-1)] font-mono tabular-nums tracking-tight">
+                {formatPrice(selected.price_usd)}
+              </span>
+            )}
+          </div>
         </div>
-        {selected.price_usd != null && (
-          <p className="text-3xl font-bold text-[var(--text-1)] mt-3 tracking-tight font-mono">
-            {formatPrice(selected.price_usd)}
-          </p>
-        )}
       </div>
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 border-b border-[var(--border)] flex-shrink-0">
+      {/* Stats row — compact single line */}
+      <div className="flex border-b border-[var(--border)] flex-shrink-0 divide-x divide-[var(--border)]">
         {[
-          { label: 'Liquidity', value: `${formatSol(selected.liquidity_sol)} SOL` },
-          { label: 'Market Cap', value: selected.market_cap_usd != null ? formatUsd(selected.market_cap_usd) : '—' },
-          { label: 'Volume 24h', value: selected.volume_24h != null ? formatUsd(selected.volume_24h) : '—' },
+          { label: 'Liq', value: `${formatSol(selected.liquidity_sol)}◎` },
+          { label: 'MC', value: selected.market_cap_usd != null ? formatUsd(selected.market_cap_usd) : '—' },
+          { label: 'Vol', value: selected.volume_24h != null ? formatUsd(selected.volume_24h) : '—' },
           { label: 'Holders', value: selected.holder_count != null ? selected.holder_count.toLocaleString() : '—' },
-        ].map(({ label, value }, i) => (
-          <div key={label} className={`px-4 py-2.5 ${i % 2 === 0 ? 'border-r' : ''} ${i >= 2 ? 'border-t' : ''} border-[var(--border)]`}>
-            <p className="text-[10px] text-[var(--text-3)] uppercase tracking-widest font-semibold mb-0.5">{label}</p>
-            <p className="text-xs font-bold text-[var(--text-1)] font-mono">{value}</p>
+        ].map(({ label, value }) => (
+          <div key={label} className="flex-1 px-2.5 py-2">
+            <p className="text-[9px] text-[var(--text-3)] uppercase tracking-widest font-semibold">{label}</p>
+            <p className="text-[11px] font-bold text-[var(--text-1)] font-mono tabular-nums mt-0.5">{value}</p>
           </div>
         ))}
       </div>
@@ -140,14 +143,32 @@ function TokenDetail() {
         score={selected.score}
       />
 
-      {/* Mint address */}
-      <div className="px-4 py-2 border-b border-[var(--border)] flex-shrink-0">
-        <p className="text-[10px] text-[var(--text-3)] uppercase tracking-widest font-medium mb-0.5">Mint</p>
-        <p className="font-mono text-xs text-[var(--text-2)] break-all select-all">{selected.mint}</p>
+      {/* Mint — collapsed by default */}
+      <div className="flex-shrink-0 border-b border-[var(--border)]">
+        <button
+          onClick={() => setShowMint(!showMint)}
+          className="w-full px-4 py-1.5 flex items-center justify-between text-[10px] text-[var(--text-3)] hover:text-[var(--text-2)] transition-colors"
+        >
+          <span className="uppercase tracking-widest font-semibold">Mint</span>
+          <span>{showMint ? '▴' : '▾'}</span>
+        </button>
+        {showMint && (
+          <div className="px-4 pb-2">
+            <p
+              className="font-mono text-[10px] text-[var(--text-2)] break-all select-all cursor-copy leading-relaxed"
+              onClick={() => navigator.clipboard.writeText(selected.mint)}
+              title="Click to copy"
+            >
+              {selected.mint}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Trade panel */}
-      <TradePanel token={selected} />
+      <div className="flex-1 overflow-y-auto">
+        <TradePanel token={selected} />
+      </div>
     </div>
   )
 }
@@ -157,40 +178,9 @@ function PortfolioColumn() {
 
   const positions = usePortfolioStore((s) => s.positions)
   const globalStopLossPct = usePortfolioStore((s) => s.globalStopLossPct)
-  const setGlobalStopLoss = usePortfolioStore((s) => s.setGlobalStopLoss)
   const setPositionStopLoss = usePortfolioStore((s) => s.setPositionStopLoss)
-  const [selling, setSelling] = useState<string | null>(null)
+  const { handleSell, selling, errors: sellErrors } = useHandleSell()
   const [editingSl, setEditingSl] = useState<string | null>(null)
-
-  const SL_OPTIONS = [20, 30, 50, 70]
-
-  async function handleSell(mint: string, amountTokens: number, decimals: number) {
-    if (!address || selling) return
-    setSelling(mint)
-    try {
-      const amountRaw = Math.floor(amountTokens * Math.pow(10, decimals))
-      const quote = await invoke<{ serialized_tx: string; out_amount_ui: number }>('build_sell_transaction', {
-        params: { input_mint: mint, amount_tokens: amountRaw, slippage_bps: 100, user_public_key: address, input_decimals: decimals },
-      })
-      const signedTxBase64 = await invoke<string>('sign_transaction', { txBase64: quote.serialized_tx })
-      const txResult = await invoke<{ signature: string; status: string }>('send_sell_transaction', { signedTxBase64 })
-      if (txResult.status === 'confirmed') {
-        const pos = usePortfolioStore.getState().positions.find((p) => p.mint === mint)
-        invoke('log_trade', {
-          mint, symbol: pos?.symbol ?? mint.slice(0, 6), side: 'sell',
-          amountSol: quote.out_amount_ui, amountTokens, priceUsd: pos?.current_price_usd ?? null,
-          txSignature: txResult.signature, status: 'confirmed', createdAt: Date.now(),
-        }).catch(console.error)
-        invoke('stop_price_tracking', { mint }).catch(console.error)
-        const { emit } = await import('@tauri-apps/api/event')
-        emit('position_closed', { mint, close_reason: 'manual', exit_price_usd: pos?.current_price_usd ?? 0, realized_pnl_pct: pos?.pnl_pct ?? 0 })
-      }
-    } catch (err) {
-      console.error('Sell failed:', err)
-    } finally {
-      setSelling(null)
-    }
-  }
 
   function confirmSl(mint: string) {
     setEditingSl(null)
@@ -220,15 +210,6 @@ function PortfolioColumn() {
                   {totalPnl >= 0 ? '+' : ''}{totalPnl.toFixed(2)} USD
                 </span>
               )}
-              {positions.length > 0 && (
-                <select
-                  value={globalStopLossPct}
-                  onChange={(e) => setGlobalStopLoss(Number(e.target.value))}
-                  className="text-[10px] bg-[var(--bg-deep)] border border-[var(--border)] rounded px-1 py-0.5 text-[var(--text-1)] outline-none focus:border-[var(--accent)] ml-1"
-                >
-                  {SL_OPTIONS.map((opt) => <option key={opt} value={opt}>-{opt}%</option>)}
-                </select>
-              )}
             </div>
           </div>
 
@@ -240,7 +221,8 @@ function PortfolioColumn() {
                 const pnlColor = p.pnl_pct == null ? 'text-[var(--text-3)]' : p.pnl_pct >= 0 ? 'text-green-400' : 'text-red-400'
                 const slPct = p.stop_loss_pct ?? globalStopLossPct
                 return (
-                  <div key={p.mint} className="rounded-lg bg-[var(--bg-deep)] px-2.5 py-1.5 flex items-center gap-1.5">
+                  <div key={p.mint} className="rounded-lg bg-[var(--bg-deep)] px-2.5 py-1.5">
+                  <div className="flex items-center gap-1.5">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <span className="font-mono text-[11px] font-bold text-[var(--text-1)] truncate">${p.symbol}</span>
@@ -278,6 +260,19 @@ function PortfolioColumn() {
                       </div>
                     </div>
                   </div>
+                  {sellErrors[p.mint] && (
+                    <div className="mt-1 flex items-center justify-between gap-1.5 rounded bg-red-500/8 border border-red-500/20 px-1.5 py-1">
+                      <p className="text-[9px] text-red-400 leading-tight">{sellErrors[p.mint]}</p>
+                      <button
+                        onClick={() => handleSell(p.mint, p.amount_tokens, p.decimals, { force: true })}
+                        disabled={selling === p.mint || !address}
+                        className="flex-shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500 text-white hover:opacity-90 disabled:opacity-40"
+                      >
+                        Force
+                      </button>
+                    </div>
+                  )}
+                  </div>
                 )
               })}
             </div>
@@ -303,6 +298,7 @@ function Dashboard() {
     setupPetEventListeners()
     usePetStore.getState().loadFromDb()
     restoreOpenPositions()
+    loadGlobalSl().then((pct) => usePortfolioStore.getState().hydrateGlobalSl(pct))
 
     // Show the desktop pet overlay window
     import('@tauri-apps/api/webviewWindow').then(async ({ WebviewWindow }) => {

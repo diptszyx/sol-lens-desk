@@ -5,15 +5,17 @@ use tokio::sync::mpsc;
 use tauri::{AppHandle, Emitter, Manager};
 
 use super::RawTokenEvent;
+use crate::config;
 use crate::enricher;
+use crate::price_tracker::PriceTracker;
 use crate::rpc::RpcState;
 
-pub const PENDING_QUEUE_CAP: usize = 500;
+pub const PENDING_QUEUE_CAP: usize = config::PIPELINE_QUEUE_CAP;
 
-const WATCH_WINDOW_SECS: i64 = 600; // 10 minutes
-const MAX_WATCH_LIST_SIZE: usize = 500;
-const REENRICH_INTERVAL_SECS: u64 = 30;
-const REENRICH_CONCURRENCY: usize = 5;
+const WATCH_WINDOW_SECS: i64 = config::WATCH_WINDOW_SECS;
+const MAX_WATCH_LIST_SIZE: usize = config::MAX_WATCH_LIST_SIZE;
+const REENRICH_INTERVAL_SECS: u64 = config::REENRICH_INTERVAL_SECS;
+const REENRICH_CONCURRENCY: usize = config::REENRICH_CONCURRENCY;
 
 pub struct Pipeline {
     rx: mpsc::Receiver<RawTokenEvent>,
@@ -52,6 +54,8 @@ impl Pipeline {
                         .min_by_key(|(_, e)| e.detected_at)
                         .map(|(k, _)| k.clone())
                     {
+                        let tracker_state = self.app.state::<PriceTracker>();
+                        tracker_state.unsubscribe(&oldest).await;
                         list.remove(&oldest);
                     }
                 }
@@ -62,7 +66,7 @@ impl Pipeline {
 
             let app = self.app.clone();
             let rpc_state = app.state::<RpcState>();
-            let rpc_url = rpc_state.rpc_url.clone();
+            let rpc_url = rpc_state.get_url().await;
 
             tokio::spawn(async move {
                 match enricher::enrich(&event, &rpc_url).await {
@@ -128,7 +132,7 @@ async fn re_enrich_loop(
         tracing::debug!("Re-enriching {} watched tokens", events.len());
 
         let rpc_state = app.state::<RpcState>();
-        let rpc_url = rpc_state.rpc_url.clone();
+        let rpc_url = rpc_state.get_url().await;
 
         for event in events {
             let permit = sem.clone().acquire_owned().await.ok();

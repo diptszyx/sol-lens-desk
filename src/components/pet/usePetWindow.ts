@@ -2,14 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { getCurrentWindow, currentMonitor, primaryMonitor } from '@tauri-apps/api/window'
 import { LogicalPosition, LogicalSize } from '@tauri-apps/api/dpi'
 
-// Logical-pixel geometry. Idle = a small window hugging the capybara so the rest
-// of the desktop stays clickable. Card = expands upward to fit the trade card.
 const IDLE_W = 240
 const IDLE_H = 180
 const CARD_W = 320
 const CARD_H = 470
 const BOTTOM_MARGIN = 8
-const STEP = 1.4 // logical px per tick
+const STEP = 1.4
 const TICK_MS = 32
 
 type Mode = 'walk' | 'card'
@@ -20,11 +18,6 @@ interface PetWindowApi {
   closeCard: () => void
 }
 
-/**
- * Drives the capybara overlay window: a slow horizontal walk along the bottom of
- * the screen, expanding to a card on hover and shrinking back on leave. All
- * movement is logical-pixel `setPosition` so it stays crisp across DPRs.
- */
 export function usePetWindow(): PetWindowApi {
   const [facing, setFacing] = useState<1 | -1>(1)
 
@@ -33,7 +26,6 @@ export function usePetWindow(): PetWindowApi {
   const mode = useRef<Mode>('walk')
   const mon = useRef<{ w: number; h: number } | null>(null)
 
-  // Imperative handlers, populated once the window/monitor are initialized.
   const api = useRef<{ openCard: () => void; closeCard: () => void }>({
     openCard: () => {},
     closeCard: () => {},
@@ -77,7 +69,6 @@ export function usePetWindow(): PetWindowApi {
 
     init()
 
-    // Expose imperative handlers via closures captured on the ref object below.
     api.current = {
       openCard: async () => {
         if (!mon.current) return
@@ -89,6 +80,12 @@ export function usePetWindow(): PetWindowApi {
         const y = mon.current.h - CARD_H - BOTTOM_MARGIN
         await win.setSize(new LogicalSize(CARD_W, CARD_H)).catch(() => {})
         await win.setPosition(new LogicalPosition(x, y)).catch(() => {})
+        // Force WebKit to repaint transparent layer after resize — macOS compositor
+        // sometimes renders stale opaque background after dynamic window resize.
+        requestAnimationFrame(() => {
+          document.documentElement.style.opacity = '0.9999'
+          requestAnimationFrame(() => { document.documentElement.style.opacity = '' })
+        })
       },
       closeCard: async () => {
         if (!mon.current) {

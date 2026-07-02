@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { usePetStore, type PetEmotion } from '../../store/pet'
-import { CapybaraSvg } from '../notifications/CapybaraSvg'
+import { PetSprite } from './PetSprite'
 
 const emotionLabels: Record<PetEmotion, string> = {
   idle: '',
@@ -10,16 +10,6 @@ const emotionLabels: Record<PetEmotion, string> = {
   watching: '👀',
   shrug: '',
   celebration: '★',
-}
-
-const emotionAnimations: Record<PetEmotion, string> = {
-  idle: 'capy-idle 2s ease-in-out infinite',
-  alert: 'capy-alert 0.3s ease-in-out 3',
-  invested: 'capy-bounce 0.5s ease-in-out infinite',
-  pumping: 'capy-dance 0.3s ease-in-out infinite',
-  watching: 'capy-still 0s',
-  shrug: 'capy-shrug 0.5s ease-in-out 1',
-  celebration: 'capy-spin 0.3s ease-in-out 8',
 }
 
 export function MiniPet() {
@@ -42,7 +32,7 @@ export function MiniPet() {
   }, [expanded])
 
   useEffect(() => {
-    const handler = (e: Event) => {
+    const handler = () => {
       setLevelUp(true)
       setTimeout(() => setLevelUp(false), 3000)
     }
@@ -61,12 +51,7 @@ export function MiniPet() {
         className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)] hover:border-[var(--accent)] transition-colors"
         title={`Level ${level} Capybara — ${xp} XP`}
       >
-        <div
-          className="w-7 h-7 flex items-center justify-center"
-          style={{ animation: emotionAnimations[emotion] }}
-        >
-          <CapybaraSvg size={28} emotion={emotion} />
-        </div>
+        <PetSprite emotion={emotion} size={28} />
         {emotion !== 'idle' && (
           <span className="text-[10px] font-bold text-[var(--accent)] animate-pulse">
             {emotionLabels[emotion]}
@@ -99,39 +84,6 @@ export function MiniPet() {
           </div>
         </div>
       )}
-
-      <style>{`
-        @keyframes capy-idle {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-2px); }
-        }
-        @keyframes capy-alert {
-          0%, 100% { transform: scale(1); }
-          50% { transform: scale(1.15); }
-        }
-        @keyframes capy-bounce {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-4px); }
-        }
-        @keyframes capy-dance {
-          0%, 100% { transform: translateY(0) rotate(0deg); }
-          25% { transform: translateY(-4px) rotate(-5deg); }
-          75% { transform: translateY(-4px) rotate(5deg); }
-        }
-        @keyframes capy-still {
-          0%, 100% { transform: scale(1); }
-        }
-        @keyframes capy-shrug {
-          0% { transform: translateY(0); }
-          50% { transform: translateY(-6px) rotate(-10deg); }
-          100% { transform: translateY(0) rotate(0deg); }
-        }
-        @keyframes capy-spin {
-          0% { transform: rotate(0deg) scale(1); }
-          50% { transform: rotate(180deg) scale(1.2); }
-          100% { transform: rotate(360deg) scale(1); }
-        }
-      `}</style>
     </div>
   )
 }

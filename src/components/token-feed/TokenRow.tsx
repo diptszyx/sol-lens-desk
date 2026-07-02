@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import type { DetectedToken } from '../../types'
 import { formatAge, formatSol, formatPrice, formatUsd } from '../../lib/format'
 
@@ -9,14 +8,11 @@ interface Props {
 }
 
 export function TokenRow({ token, onClick, isSelected }: Props) {
-  const [hover, setHover] = useState(false)
   const displaySymbol = token.symbol ?? token.mint.slice(0, 6)
 
   return (
     <button
       onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
       className={`w-full px-3 py-2.5 text-left transition-all border-b border-[var(--border)] ${
         isSelected
           ? 'bg-[var(--bg-surface)] border-l-2 border-l-[var(--accent)]'
@@ -51,21 +47,8 @@ export function TokenRow({ token, onClick, isSelected }: Props) {
           </span>
         )}
         {token.market_cap_usd != null && (
-          <span className="relative inline-flex items-center">
-            <span
-              className="text-[10px] tabular-nums text-[var(--text-3)]"
-              style={{ opacity: hover ? 0 : 1, transition: 'opacity 150ms ease-out' }}
-            >
-              MC {formatUsd(token.market_cap_usd)}
-            </span>
-            <span
-              className="absolute inset-0 flex items-center"
-              style={{ opacity: hover ? 1 : 0, transition: 'opacity 150ms ease-out', pointerEvents: 'none' }}
-            >
-              <span className="font-mono font-bold text-[10px] bg-[var(--accent)] text-black px-3 py-1 rounded">
-                BUY
-              </span>
-            </span>
+          <span className="text-[10px] tabular-nums text-[var(--text-3)]">
+            MC {formatUsd(token.market_cap_usd)}
           </span>
         )}
         <span className="text-[10px] text-[var(--text-3)] tabular-nums">

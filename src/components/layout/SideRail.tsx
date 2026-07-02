@@ -1,3 +1,6 @@
+import { useEffect } from 'react'
+import { useDetectorStatusStore } from '../../store/detectorStatus'
+
 export type ActiveSurface = 'trading' | 'portfolio' | 'pet'
 
 interface Props {
@@ -6,6 +9,14 @@ interface Props {
 }
 
 export function SideRail({ activeSurface, onSwitch }: Props) {
+  const detectorStatus = useDetectorStatusStore((s) => s.status)
+  const errorCount = useDetectorStatusStore((s) => s.errorCount)
+  const initDetectorStatus = useDetectorStatusStore((s) => s.init)
+
+  useEffect(() => { initDetectorStatus() }, [initDetectorStatus])
+
+  const statusColor = errorCount > 3 ? 'error' : detectorStatus
+
   return (
     <nav className="w-11 flex-shrink-0 border-r border-[var(--border)] bg-[var(--bg-deep)] flex flex-col items-center pt-3 pb-4 gap-1">
       <div
@@ -39,6 +50,18 @@ export function SideRail({ activeSurface, onSwitch }: Props) {
           <path d="M12 9c-3.5 0-7 2-7 5.5 0 2.5 2 4.5 4 4.5.8 0 1.5-.3 2-.6.3-.2.7-.4 1-.4s.7.2 1 .4c.5.3 1.2.6 2 .6 2 0 4-2 4-4.5C19 11 15.5 9 12 9z" />
         </svg>
       </RailButton>
+
+      <div className="mt-auto pt-2" title={`Detector: ${statusColor}`}>
+        <span
+          className={`inline-block w-2 h-2 rounded-full ${
+            statusColor === 'connected'
+              ? 'bg-green-400'
+              : statusColor === 'reconnecting'
+                ? 'bg-yellow-400 animate-pulse'
+                : 'bg-red-400'
+          }`}
+        />
+      </div>
     </nav>
   )
 }

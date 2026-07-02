@@ -35,6 +35,7 @@ export function useTokenFeed() {
 
   useEffect(() => {
     let cleanupFn: (() => void) | null = null
+    let cancelled = false
 
     const setup = async () => {
       const unlisten1 = await listen<DetectedToken>('token_detected', (event) => {
@@ -61,11 +62,19 @@ export function useTokenFeed() {
       }
     }
 
+    // StrictMode (dev) mounts/cleans up/remounts synchronously — if cleanup already ran
+    // by the time setup() resolves, tear down immediately instead of leaking listeners
+    // that would double-process every token_detected/token_updated event.
     setup().then((fn) => {
-      cleanupFn = fn
+      if (cancelled) {
+        fn()
+      } else {
+        cleanupFn = fn
+      }
     })
 
     return () => {
+      cancelled = true
       cleanupFn?.()
     }
   }, [addToken, updateToken, addScoreAlert])

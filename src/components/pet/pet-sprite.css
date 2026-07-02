@@ -1,0 +1,10 @@
+/* Sprite sheet keyframes — background-position at native pixel values.
+   Loopers end at -frames*292 (wrap point). Non-loopers (alert/shrug/celebration)
+   end at -(frames-1)*292 so `forwards` holds the last real frame, not a blank. */
+@keyframes pet-sprite-idle        { to { background-position: -2336px 0; } }
+@keyframes pet-sprite-alert       { to { background-position: -1460px 0; } }
+@keyframes pet-sprite-invested    { to { background-position: -1752px 0; } }
+@keyframes pet-sprite-pumping     { to { background-position: -2336px 0; } }
+@keyframes pet-sprite-watching    { to { background-position: -1168px 0; } }
+@keyframes pet-sprite-shrug       { to { background-position: -2628px 0; } }
+@keyframes pet-sprite-celebration { to { background-position: -2920px 0; } }

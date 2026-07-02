@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { listen, emitTo } from '@tauri-apps/api/event'
 import { usePortfolioStore } from './portfolio'
 import { useFilterStore } from './filter'
 import { matchesFilter } from '../lib/filter'
@@ -26,9 +26,9 @@ interface PetStore {
 
   setEmotion: (e: PetEmotion) => void
   restorePrev: () => void
-  addXp: (amount: number) => void
-  incrementTokensSeen: () => void
-  incrementTrades: () => void
+  gainTokenXp: () => Promise<void>
+  gainBuyXp: () => Promise<void>
+  gainCloseXp: () => Promise<void>
   loadFromDb: () => Promise<void>
 }
 
@@ -52,8 +52,14 @@ export const usePetStore = create<PetStore>((set, get) => ({
   setEmotion: (emotion) =>
     set((state) => ({
       emotion,
+      // prevEmotion is the "resting" state to fall back to. Transient states —
+      // shrug/celebration (post-trade) and alert (new-token flash) — must never
+      // become prevEmotion, otherwise a live token feed keeps overwriting it with
+      // 'alert' and the pet can never settle back to idle.
       prevEmotion:
-        state.emotion !== 'shrug' && state.emotion !== 'celebration'
+        state.emotion !== 'shrug' &&
+        state.emotion !== 'celebration' &&
+        state.emotion !== 'alert'
           ? state.emotion
           : state.prevEmotion,
     })),
@@ -63,31 +69,49 @@ export const usePetStore = create<PetStore>((set, get) => ({
       emotion: state.prevEmotion,
     })),
 
-  addXp: async (amount) => {
+  gainTokenXp: async () => {
     const { xp, level } = get()
-    const newXp = xp + amount
+    const newXp = xp + 1
     const newLevel = calcLevel(newXp)
-    set({ xp: newXp, level: newLevel })
+    set((state) => ({ xp: newXp, level: newLevel, totalTokensSeen: state.totalTokensSeen + 1 }))
     if (newLevel > level) {
       window.dispatchEvent(new CustomEvent('pet_level_up', { detail: { level: newLevel } }))
     }
     try {
-      await invoke('update_pet_xp', { xpDelta: amount, tokensDelta: 0, tradesDelta: 0 })
-    } catch { /* ignore */ }
+      await invoke('update_pet_xp', { xpDelta: 1, tokensDelta: 1, tradesDelta: 0 })
+    } catch (e) {
+      console.error('[pet] gainTokenXp failed:', e)
+    }
   },
 
-  incrementTokensSeen: async () => {
-    set((state) => ({ totalTokensSeen: state.totalTokensSeen + 1 }))
+  gainBuyXp: async () => {
+    const { xp, level } = get()
+    const newXp = xp + 10
+    const newLevel = calcLevel(newXp)
+    set((state) => ({ xp: newXp, level: newLevel }))
+    if (newLevel > level) {
+      window.dispatchEvent(new CustomEvent('pet_level_up', { detail: { level: newLevel } }))
+    }
     try {
-      await invoke('update_pet_xp', { xpDelta: 0, tokensDelta: 1, tradesDelta: 0 })
-    } catch { /* ignore */ }
+      await invoke('update_pet_xp', { xpDelta: 10, tokensDelta: 0, tradesDelta: 0 })
+    } catch (e) {
+      console.error('[pet] gainBuyXp failed:', e)
+    }
   },
 
-  incrementTrades: async () => {
-    set((state) => ({ totalTrades: state.totalTrades + 1 }))
+  gainCloseXp: async () => {
+    const { xp, level } = get()
+    const newXp = xp + 10
+    const newLevel = calcLevel(newXp)
+    set((state) => ({ xp: newXp, level: newLevel, totalTrades: state.totalTrades + 1 }))
+    if (newLevel > level) {
+      window.dispatchEvent(new CustomEvent('pet_level_up', { detail: { level: newLevel } }))
+    }
     try {
-      await invoke('update_pet_xp', { xpDelta: 0, tokensDelta: 0, tradesDelta: 1 })
-    } catch { /* ignore */ }
+      await invoke('update_pet_xp', { xpDelta: 10, tokensDelta: 0, tradesDelta: 1 })
+    } catch (e) {
+      console.error('[pet] gainCloseXp failed:', e)
+    }
   },
 
   loadFromDb: async () => {
@@ -104,11 +128,43 @@ export const usePetStore = create<PetStore>((set, get) => ({
         totalTokensSeen: state.total_tokens_seen,
         totalTrades: state.total_trades,
       })
-    } catch { /* ignore */ }
+    } catch (e) {
+      console.error('[pet] loadFromDb failed:', e)
+    }
   },
 }))
 
 let petEventWired = false
+
+// Single shared timer for the new-token alert card. A fresh token resets it
+// instead of stacking a new 10s timer, so overlapping detections don't leave
+// multiple restore callbacks racing each other.
+let alertTimer: ReturnType<typeof setTimeout> | null = null
+const ALERT_CARD_MS = 10_000
+
+function syncEmotion(emotion: PetEmotion) {
+  emitTo('pet', 'pet_emotion', { emotion }).catch(() => {})
+}
+
+// The correct resting emotion: idle when the book is flat, otherwise whatever
+// the pet was showing before the transient state (invested/pumping/watching).
+function settleEmotion() {
+  const store = usePetStore.getState()
+  if (usePortfolioStore.getState().positions.length === 0) {
+    store.setEmotion('idle')
+  } else {
+    store.restorePrev()
+  }
+  syncEmotion(usePetStore.getState().emotion)
+}
+
+function syncShowCard(token: DetectedToken) {
+  emitTo('pet', 'pet_show_card', { token }).catch(() => {})
+}
+
+function syncHideCard() {
+  emitTo('pet', 'pet_hide_card', {}).catch(() => {})
+}
 
 export function setupPetEventListeners() {
   if (petEventWired) return
@@ -120,27 +176,32 @@ export function setupPetEventListeners() {
 
     const store = usePetStore.getState()
     store.setEmotion('alert')
-    store.incrementTokensSeen()
-    store.addXp(1)
-    setTimeout(() => store.restorePrev(), 10_000)
+    syncEmotion('alert')
+    syncShowCard(event.payload)
+    store.gainTokenXp()
+
+    if (alertTimer) clearTimeout(alertTimer)
+    alertTimer = setTimeout(() => {
+      alertTimer = null
+      settleEmotion()
+      syncHideCard()
+    }, ALERT_CARD_MS)
   })
 
   listen('buy_confirmed', () => {
     const store = usePetStore.getState()
     store.setEmotion('invested')
-    store.incrementTrades()
-    store.addXp(10)
+    syncEmotion('invested')
+    store.gainBuyXp()
   })
 
   listen<{ mint: string; price_usd: number }>('price_updated', () => {
     const store = usePetStore.getState()
-    // Don't interrupt transient celebratory/loss states; their timers restore.
     if (store.emotion === 'shrug' || store.emotion === 'celebration') return
 
     const positions = usePortfolioStore.getState().positions
     if (positions.length === 0) return
 
-    // Worst-case priority across all positions: watching > invested > pumping.
     let nearSl = false
     let allPumping = true
     for (const p of positions) {
@@ -156,18 +217,30 @@ export function setupPetEventListeners() {
       if (pnlPct <= 20) allPumping = false
     }
 
-    if (nearSl) store.setEmotion('watching')
-    else if (allPumping) store.setEmotion('pumping')
-    else store.setEmotion('invested')
+    if (nearSl) {
+      store.setEmotion('watching')
+      syncEmotion('watching')
+    } else if (allPumping) {
+      store.setEmotion('pumping')
+      syncEmotion('pumping')
+    } else {
+      store.setEmotion('invested')
+      syncEmotion('invested')
+    }
   })
 
-  listen<{ realized_pnl_pct: number }>('position_closed', (e) => {
+  listen<{ realized_pnl_pct: number; close_reason: string }>('position_closed', (e) => {
     const store = usePetStore.getState()
-    const emotion = e.payload.realized_pnl_pct > 0 ? 'celebration' : 'shrug'
+    // Stop-loss always shrugs — even a trailing SL that closes green is framed as
+    // "we move", never a celebration. Only a manual sell in profit celebrates.
+    const emotion =
+      e.payload.close_reason === 'manual' && e.payload.realized_pnl_pct > 0
+        ? 'celebration'
+        : 'shrug'
     store.setEmotion(emotion)
-    store.incrementTrades()
-    store.addXp(10)
+    syncEmotion(emotion)
+    store.gainCloseXp()
     const duration = emotion === 'celebration' ? 5000 : 3000
-    setTimeout(() => store.restorePrev(), duration)
+    setTimeout(settleEmotion, duration)
   })
 }

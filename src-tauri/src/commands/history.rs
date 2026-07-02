@@ -1,10 +1,19 @@
+use std::sync::Mutex;
 use tauri::State;
 
 use crate::db::{ClosedPosition, DbPool, Trade};
+use crate::wallet::WalletState;
+
+fn resolve_active_address(wallet: &WalletState) -> Result<String, String> {
+    wallet.active_address_str()
+        .map(String::from)
+        .ok_or_else(|| "Wallet is locked".to_string())
+}
 
 #[tauri::command]
 pub async fn log_trade(
     db: State<'_, DbPool>,
+    wallet: State<'_, Mutex<WalletState>>,
     mint: String,
     symbol: String,
     side: String,
@@ -15,6 +24,10 @@ pub async fn log_trade(
     status: String,
     created_at: i64,
 ) -> Result<i64, String> {
+    let addr = {
+        let w = wallet.lock().unwrap();
+        resolve_active_address(&w)?
+    };
     let trade = Trade {
         id: None,
         mint,
@@ -26,13 +39,15 @@ pub async fn log_trade(
         tx_signature,
         status,
         created_at,
+        wallet_address: addr,
     };
-    db.log_trade(&trade).map_err(|e| e.to_string())
+    db.log_trade(&trade).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn record_closed_position(
     db: State<'_, DbPool>,
+    wallet: State<'_, Mutex<WalletState>>,
     mint: String,
     symbol: String,
     entry_price_usd: f64,
@@ -45,6 +60,10 @@ pub async fn record_closed_position(
     closed_at: i64,
     close_reason: String,
 ) -> Result<(), String> {
+    let addr = {
+        let w = wallet.lock().unwrap();
+        resolve_active_address(&w)?
+    };
     let pos = ClosedPosition {
         id: None,
         mint,
@@ -58,16 +77,32 @@ pub async fn record_closed_position(
         opened_at,
         closed_at,
         close_reason,
+        wallet_address: addr,
     };
-    db.close_position(&pos).map_err(|e| e.to_string())
+    db.close_position(&pos).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn get_closed_positions(db: State<'_, DbPool>) -> Result<Vec<ClosedPosition>, String> {
-    db.get_closed_positions().map_err(|e| e.to_string())
+pub async fn get_closed_positions(
+    db: State<'_, DbPool>,
+    wallet: State<'_, Mutex<WalletState>>,
+) -> Result<Vec<ClosedPosition>, String> {
+    let addr = {
+        let w = wallet.lock().unwrap();
+        resolve_active_address(&w)?
+    };
+    db.get_closed_positions(&addr).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn get_trade_history(db: State<'_, DbPool>, mint: String) -> Result<Vec<Trade>, String> {
-    db.get_trade_history(&mint).map_err(|e| e.to_string())
+pub async fn check_tx_signature(
+    db: State<'_, DbPool>,
+    wallet: State<'_, Mutex<WalletState>>,
+    sig: String,
+) -> Result<bool, String> {
+    let addr = {
+        let w = wallet.lock().unwrap();
+        resolve_active_address(&w)?
+    };
+    db.tx_signature_exists(&sig, &addr).await.map_err(|e| e.to_string())
 }

@@ -45,6 +45,8 @@ export interface Position {
   tx_signature: string
   /** Positive percent below entry that triggers stop-loss. e.g. 50 = sell at -50%. */
   stop_loss_pct: number
+  /** false after restore — PnL stays 0% until first price update arrives. */
+  priceLoaded: boolean
 }
 
 /** Default stop-loss as a positive percent below entry. */

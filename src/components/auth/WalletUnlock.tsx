@@ -1,12 +1,17 @@
 import { useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import type { WalletInfo } from '../../store/wallet'
 
 interface Props {
-  onSuccess: (address: string) => void
-  onReset?: () => void
+  onSuccess: (address: string, wallets?: WalletInfo[]) => void
 }
 
-export function WalletUnlock({ onSuccess, onReset }: Props) {
+interface UnlockResult {
+  active_address: string
+  wallets: WalletInfo[]
+}
+
+export function WalletUnlock({ onSuccess }: Props) {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -16,8 +21,8 @@ export function WalletUnlock({ onSuccess, onReset }: Props) {
     if (!password) return
     setLoading(true); setError(null)
     try {
-      const address = await invoke<string>('unlock_wallet', { password })
-      onSuccess(address)
+      const result = await invoke<UnlockResult>('unlock_wallet', { password })
+      onSuccess(result.active_address, result.wallets)
     } catch (e) {
       setError(String(e))
       setPassword('')
@@ -101,17 +106,6 @@ export function WalletUnlock({ onSuccess, onReset }: Props) {
               'Unlock'
             )}
           </button>
-
-          {onReset && (
-            <div className="pt-2">
-              <button
-                onClick={onReset}
-                className="w-full rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] py-2.5 text-xs font-medium text-[var(--text-2)] hover:text-[var(--text-1)] hover:border-[var(--border-strong)] transition-all"
-              >
-                Use a different wallet
-              </button>
-            </div>
-          )}
         </div>
       </div>
 

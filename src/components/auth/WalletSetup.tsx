@@ -1,14 +1,17 @@
 import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import type { WalletInfo } from '../../store/wallet'
 
 interface Props {
-  onSuccess: (address: string) => void
+  onSuccess: (address: string, wallets?: WalletInfo[]) => void
+  isUnlocked?: boolean
+  onClose?: () => void
 }
 
 type Tab = 'create' | 'import'
 type Stage = 'form' | 'mnemonic'
 
-export function WalletSetup({ onSuccess }: Props) {
+export function WalletSetup({ onSuccess, isUnlocked, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('create')
   const [stage, setStage] = useState<Stage>('form')
   const [password, setPassword] = useState('')
@@ -19,13 +22,18 @@ export function WalletSetup({ onSuccess }: Props) {
   const [mnemonic, setMnemonic] = useState<string | null>(null)
   const [pendingAddress, setPendingAddress] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const needsPassword = !isUnlocked
 
   async function handleCreate() {
-    if (password.length < 6) { setError('Password must be at least 6 characters'); return }
-    if (password !== confirm) { setError('Passwords do not match'); return }
+    if (needsPassword) {
+      if (password.length < 6) { setError('Password must be at least 6 characters'); return }
+      if (password !== confirm) { setError('Passwords do not match'); return }
+    }
     setLoading(true); setError(null)
     try {
-      const result = await invoke<{ address: string; mnemonic: string }>('create_wallet', { password })
+      const result = await invoke<{ address: string; mnemonic: string; wallets: WalletInfo[] }>('create_wallet', {
+        password: needsPassword ? password : null,
+      })
       setMnemonic(result.mnemonic)
       setPendingAddress(result.address)
       setStage('mnemonic')
@@ -38,12 +46,17 @@ export function WalletSetup({ onSuccess }: Props) {
 
   async function handleImport() {
     if (!secret.trim()) { setError('Enter your private key or seed phrase'); return }
-    if (password.length < 6) { setError('Password must be at least 6 characters'); return }
-    if (password !== confirm) { setError('Passwords do not match'); return }
+    if (needsPassword) {
+      if (password.length < 6) { setError('Password must be at least 6 characters'); return }
+      if (password !== confirm) { setError('Passwords do not match'); return }
+    }
     setLoading(true); setError(null)
     try {
-      const address = await invoke<string>('import_wallet', { secret: secret.trim(), password })
-      onSuccess(address)
+      const result = await invoke<{ address: string; wallets: WalletInfo[] }>('import_wallet', {
+        secret: secret.trim(),
+        password: needsPassword ? password : null,
+      })
+      onSuccess(result.address, result.wallets)
     } catch (e) {
       setError(String(e))
     } finally {
@@ -148,20 +161,35 @@ export function WalletSetup({ onSuccess }: Props) {
       </div>
 
       <div className="relative w-full max-w-sm px-4 animate-fadeIn">
-        <div className="flex flex-col items-center gap-3 mb-8">
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center"
-            style={{ background: 'linear-gradient(135deg, rgba(153,69,255,0.18) 0%, rgba(0,255,136,0.12) 100%)', border: '1px solid var(--border)' }}
-          >
-            <span className="text-2xl" style={{ color: 'var(--accent)' }}>◎</span>
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-col items-start gap-3">
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center"
+              style={{ background: 'linear-gradient(135deg, rgba(153,69,255,0.18) 0%, rgba(0,255,136,0.12) 100%)', border: '1px solid var(--border)' }}
+            >
+              <span className="text-2xl" style={{ color: 'var(--accent)' }}>◎</span>
+            </div>
+            <div>
+              <h1
+                className="text-2xl font-bold tracking-tight"
+                style={{ backgroundImage: 'var(--brand-gradient)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}
+              >
+                Sol Lens
+              </h1>
+              <p className="text-xs text-[var(--text-3)] mt-1">
+                {isUnlocked ? 'Add a wallet to your vault' : 'Set up your wallet to get started'}
+              </p>
+            </div>
           </div>
-          <h1
-            className="text-2xl font-bold tracking-tight"
-            style={{ backgroundImage: 'var(--brand-gradient)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' }}
-          >
-            Sol Lens
-          </h1>
-          <p className="text-xs text-[var(--text-3)]">Set up your wallet to get started</p>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="text-[var(--text-3)] hover:text-[var(--text-1)] transition-colors text-xl leading-none"
+              aria-label="Close"
+            >
+              ×
+            </button>
+          )}
         </div>
 
         <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-1.5 mb-5">
@@ -206,44 +234,48 @@ export function WalletSetup({ onSuccess }: Props) {
             </div>
           )}
 
-          <div>
-            <label className="text-[11px] font-semibold text-[var(--text-2)] uppercase tracking-widest mb-1.5 block">
-              Password
-            </label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-2)] select-none">🔒</span>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 6 characters"
-                className="w-full rounded-xl bg-[var(--bg-deep)] border border-[var(--border)] pl-9 pr-3 py-3 text-sm text-[var(--text-1)] placeholder:text-[var(--text-2)] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/20 transition-all"
-              />
-            </div>
-            {password.length > 0 && password.length < 6 && (
-              <p className="text-[10px] text-amber-400 mt-1 ml-1">At least 6 characters required</p>
-            )}
-          </div>
+          {needsPassword && (
+            <>
+              <div>
+                <label className="text-[11px] font-semibold text-[var(--text-2)] uppercase tracking-widest mb-1.5 block">
+                  Password
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-2)] select-none">🔒</span>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="At least 6 characters"
+                    className="w-full rounded-xl bg-[var(--bg-deep)] border border-[var(--border)] pl-9 pr-3 py-3 text-sm text-[var(--text-1)] placeholder:text-[var(--text-2)] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/20 transition-all"
+                  />
+                </div>
+                {password.length > 0 && password.length < 6 && (
+                  <p className="text-[10px] text-amber-400 mt-1 ml-1">At least 6 characters required</p>
+                )}
+              </div>
 
-          <div>
-            <label className="text-[11px] font-semibold text-[var(--text-2)] uppercase tracking-widest mb-1.5 block">
-              Confirm password
-            </label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-2)] select-none">✓</span>
-              <input
-                type="password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && (tab === 'create' ? handleCreate() : handleImport())}
-                placeholder="Re-enter your password"
-                className="w-full rounded-xl bg-[var(--bg-deep)] border border-[var(--border)] pl-9 pr-3 py-3 text-sm text-[var(--text-1)] placeholder:text-[var(--text-2)] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/20 transition-all"
-              />
-            </div>
-            {confirm.length > 0 && password !== confirm && (
-              <p className="text-[10px] text-red-400 mt-1 ml-1">Passwords don't match</p>
-            )}
-          </div>
+              <div>
+                <label className="text-[11px] font-semibold text-[var(--text-2)] uppercase tracking-widest mb-1.5 block">
+                  Confirm password
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-[var(--text-2)] select-none">✓</span>
+                  <input
+                    type="password"
+                    value={confirm}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && (tab === 'create' ? handleCreate() : handleImport())}
+                    placeholder="Re-enter your password"
+                    className="w-full rounded-xl bg-[var(--bg-deep)] border border-[var(--border)] pl-9 pr-3 py-3 text-sm text-[var(--text-1)] placeholder:text-[var(--text-2)] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/20 transition-all"
+                  />
+                </div>
+                {confirm.length > 0 && password !== confirm && (
+                  <p className="text-[10px] text-red-400 mt-1 ml-1">Passwords don't match</p>
+                )}
+              </div>
+            </>
+          )}
 
           {error && (
             <div className="rounded-xl bg-red-500/5 border border-red-500/15 px-4 py-3 text-xs text-red-400 flex items-start gap-2.5">

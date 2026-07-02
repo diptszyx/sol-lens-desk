@@ -4,13 +4,11 @@ import { invoke } from '@tauri-apps/api/core'
 import type { DetectedToken, PetBuyResult } from '../../types'
 import { PET_BUY_REQUEST, PET_BUY_RESULT } from '../../types'
 import { formatAge, formatSol } from '../../lib/format'
+import { loadTradeDefaults } from '../../lib/tradeDefaults'
 
 function openUrl(url: string) {
   invoke('open_url', { url }).catch(() => {})
 }
-
-const SOL_PRESETS = [0.1, 0.5, 1]
-const SLIPPAGE_BPS = 100 // 1% — sane default for fast meme entries
 
 type BuyState =
   | { tag: 'idle' }
@@ -46,26 +44,37 @@ function scoreColor(score: number): string {
 }
 
 export function PetCard({ token }: { token: DetectedToken }) {
-  const [amount, setAmount] = useState(0.1)
+  const defaults = loadTradeDefaults()
+  const [amount, setAmount] = useState(() => parseFloat(defaults.defaultAmount) || 0.1)
+  const [slippageBps, setSlippageBps] = useState(() => parseInt(defaults.defaultSlippage, 10) || 100)
   const [state, setState] = useState<BuyState>({ tag: 'idle' })
 
   const displaySymbol = token.symbol ?? token.mint.slice(0, 6)
 
-  // Reset when a new token flows into the card.
+  // Reset when a new token flows into the card — re-read defaults each time in case
+  // they changed in Trade Defaults settings since this card last mounted.
   useEffect(() => {
     setState({ tag: 'idle' })
-    setAmount(0.1)
+    const d = loadTradeDefaults()
+    setAmount(parseFloat(d.defaultAmount) || 0.1)
+    setSlippageBps(parseInt(d.defaultSlippage, 10) || 100)
   }, [token.mint])
 
   // Listen for the dashboard's reply to our buy request.
   useEffect(() => {
     let unlisten: (() => void) | null = null
+    let cancelled = false
     listen<PetBuyResult>(PET_BUY_RESULT, (e) => {
       if (e.payload.mint === token.mint) setState({ tag: 'done', result: e.payload })
     }).then((fn) => {
-      unlisten = fn
+      if (cancelled) {
+        fn()
+      } else {
+        unlisten = fn
+      }
     })
     return () => {
+      cancelled = true
       unlisten?.()
     }
   }, [token.mint])
@@ -75,7 +84,7 @@ export function PetCard({ token }: { token: DetectedToken }) {
     emitTo('main', PET_BUY_REQUEST, {
       token,
       amountSol: amount,
-      slippageBps: SLIPPAGE_BPS,
+      slippageBps,
     }).catch((err) => {
       setState({
         tag: 'done',
@@ -146,32 +155,13 @@ export function PetCard({ token }: { token: DetectedToken }) {
 
       {/* Trade */}
       {state.tag !== 'done' && (
-        <>
-          <div className="mt-2.5 flex gap-1.5">
-            {SOL_PRESETS.map((p) => (
-              <button
-                key={p}
-                onClick={() => setAmount(p)}
-                disabled={state.tag === 'pending'}
-                className={`flex-1 rounded-md border py-1 text-xs transition-colors disabled:opacity-50 ${
-                  amount === p
-                    ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
-                    : 'border-[var(--border)] text-[var(--text-3)] hover:text-[var(--text-2)]'
-                }`}
-              >
-                {p} ◎
-              </button>
-            ))}
-          </div>
-
-          <button
-            onClick={handleBuy}
-            disabled={state.tag === 'pending'}
-            className="mt-2 w-full rounded-lg bg-[var(--accent)] py-2 text-sm font-bold text-black transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {state.tag === 'pending' ? 'Buying…' : `Buy ${amount} ◎`}
-          </button>
-        </>
+        <button
+          onClick={handleBuy}
+          disabled={state.tag === 'pending'}
+          className="mt-2.5 w-full rounded-lg bg-[var(--accent)] py-2 text-sm font-bold text-black transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {state.tag === 'pending' ? 'Buying…' : `Buy ${amount} ◎`}
+        </button>
       )}
 
       {/* Result */}

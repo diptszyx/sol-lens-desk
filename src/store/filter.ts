@@ -41,23 +41,25 @@ export const useFilterStore = create<FilterStore>((set, get) => ({
   hydrated: false,
   activePreset: null,
   set: (patch) => {
-    const next = { ...get().filter, ...patch }
+    const current = get()
+    const next = { ...current.filter, ...patch }
     if (next.maxAgeSec != null && next.maxAgeSec > MAX_AGE_SEC) next.maxAgeSec = MAX_AGE_SEC
-    set({ filter: next, activePreset: null })
-    void persist(next)
+    const presetBroken = 'minScoreThreshold' in patch && patch.minScoreThreshold !== current.filter.minScoreThreshold
+    set({ filter: next, activePreset: presetBroken ? null : current.activePreset })
+    persist(next).catch((e) => console.error('[filter] persist failed:', e))
   },
   applyPreset: (preset, config) => {
     const clamped = { ...config }
     if (clamped.maxAgeSec != null && clamped.maxAgeSec > MAX_AGE_SEC) clamped.maxAgeSec = MAX_AGE_SEC
     set({ filter: clamped, activePreset: preset })
-    void persist(clamped)
+    persist(clamped).catch((e) => console.error('[filter] persist failed:', e))
   },
   clearPreset: () => {
     set({ activePreset: null })
   },
   reset: () => {
     set({ filter: DEFAULT_FILTER, activePreset: null })
-    void persist(DEFAULT_FILTER)
+    persist(DEFAULT_FILTER).catch((e) => console.error('[filter] persist failed:', e))
   },
   hydrate: async () => {
     const saved = await loadSaved()

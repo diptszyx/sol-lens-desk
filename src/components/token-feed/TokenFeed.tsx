@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTokenFeed } from '../../hooks/useTokenFeed'
 import { useTokenFeedStore } from '../../store/tokenFeed'
 import { useFilterStore } from '../../store/filter'
+import { useDetectorStatusStore } from '../../store/detectorStatus'
 import { matchesFilter } from '../../lib/filter'
 import { TokenRow } from './TokenRow'
 import { FilterPanel } from '../filter/FilterPanel'
@@ -11,10 +12,13 @@ export function TokenFeed() {
   const { tokens, selected, selectToken } = useTokenFeedStore()
   const filter = useFilterStore((s) => s.filter)
   const hydrate = useFilterStore((s) => s.hydrate)
+  const detectorStatus = useDetectorStatusStore((s) => s.status)
+  const initDetectorStatus = useDetectorStatusStore((s) => s.init)
 
   const [showFilter, setShowFilter] = useState(false)
 
   useEffect(() => { void hydrate() }, [hydrate])
+  useEffect(() => { initDetectorStatus() }, [initDetectorStatus])
 
   const filtered = useMemo(
     () => tokens.filter((t) => matchesFilter(t, filter)),
@@ -56,9 +60,17 @@ export function TokenFeed() {
           />
         ))}
 
-        {tokens.length === 0 && (
+        {tokens.length === 0 && detectorStatus === 'reconnecting' && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
-            <div className="w-8 h-8 rounded-full border-2 border-[var(--border)] border-t-[var(--accent)] animate-spin" />
+            <div className="w-8 h-8 rounded-full border-2 border-[var(--border)] border-t-yellow-400 animate-spin" />
+            <p className="text-sm font-medium text-[var(--text-2)]">Reconnecting…</p>
+            <p className="text-xs text-[var(--text-3)]">pump.fun WebSocket dropped, retrying</p>
+          </div>
+        )}
+
+        {tokens.length === 0 && detectorStatus === 'connected' && (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-8">
+            <div className="w-2.5 h-2.5 rounded-full bg-green-400 animate-pulse" />
             <p className="text-sm font-medium text-[var(--text-2)]">Listening for new tokens…</p>
             <p className="text-xs text-[var(--text-3)]">pump.fun WebSocket connected</p>
           </div>

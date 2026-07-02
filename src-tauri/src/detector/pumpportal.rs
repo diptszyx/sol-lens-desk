@@ -82,15 +82,21 @@ async fn try_listen(tx: &mpsc::Sender<RawTokenEvent>) -> Result<()> {
         if event.tx_type.as_deref() != Some("create") {
             continue;
         }
+        // Only bonding-curve creates are tradeable right now (pumpfun_direct.rs has no
+        // PumpSwap/Raydium path yet) — skip other pool types instead of enriching them
+        // and dropping later, wastes an RPC round-trip and produces confusing noise.
+        match event.pool.as_deref() {
+            Some("pump") | None => {}
+            Some(other) => {
+                tracing::debug!("Skipping non-bonding-curve create event (pool={other})");
+                continue;
+            }
+        }
         let (Some(mint), Some(sig)) = (event.mint, event.signature) else {
             continue;
         };
 
-        let source = match event.pool.as_deref() {
-            Some("pump") | None => "pump_fun",
-            Some(other) => other,
-        }
-        .to_string();
+        let source = "pump_fun".to_string();
 
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

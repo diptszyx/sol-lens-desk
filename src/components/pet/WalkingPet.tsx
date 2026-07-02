@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { usePetStore } from '../../store/pet'
-import { CapybaraSvg } from '../notifications/CapybaraSvg'
+import { PetSprite } from './PetSprite'
 
 const PET_SIZE = 44
 const SPEED = 0.7 // px per frame
@@ -47,33 +47,20 @@ export function WalkingPet({ containerRef, onClickPet }: Props) {
   }, [containerRef])
 
   return (
-    <>
-      <style>{`
-        @keyframes capy-waddle {
-          0%, 100% { transform: translateY(0) rotate(0deg); }
-          25%       { transform: translateY(-4px) rotate(-4deg); }
-          75%       { transform: translateY(-2px) rotate(4deg); }
-        }
-      `}</style>
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 10,
-          left: x,
-          zIndex: 20,
-          cursor: 'pointer',
-          userSelect: 'none',
-          transform: facingRight ? undefined : 'scaleX(-1)',
-          filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.5))',
-          transition: 'transform 0.15s',
-        }}
-        onClick={onClickPet}
-        title="Pet dashboard"
-      >
-        <div style={{ animation: 'capy-waddle 0.45s ease-in-out infinite' }}>
-          <CapybaraSvg size={PET_SIZE} emotion={emotion} />
-        </div>
-      </div>
-    </>
+    <div
+      style={{
+        position: 'absolute',
+        bottom: 10,
+        left: x,
+        zIndex: 20,
+        cursor: 'pointer',
+        userSelect: 'none',
+        filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.5))',
+      }}
+      onClick={onClickPet}
+      title="Pet dashboard"
+    >
+      <PetSprite emotion={emotion} size={PET_SIZE} flip={!facingRight} />
+    </div>
   )
 }

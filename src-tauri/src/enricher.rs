@@ -2,15 +2,13 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
+use crate::config;
 use crate::detector::RawTokenEvent;
 use crate::rpc;
 
 const PUMP_TOTAL_SUPPLY: f64 = 1_000_000_000.0;
 const PUMP_INIT_VTOKENS: f64 = 1_073_000_000.0;
 const PUMP_GRAD_RESERVE: f64 = 206_900_000.0;
-// pump.fun initialises bonding curves with 30 virtual SOL for AMM pricing.
-// Real deposited SOL = vSolInBondingCurve - PUMP_INIT_VSOL.
-const PUMP_INIT_VSOL: f64 = 30.0;
 
 static SOL_PRICE_CACHE: Mutex<Option<(f64, Instant)>> = Mutex::new(None);
 static SOL_PRICE_WARN_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -55,7 +53,7 @@ pub(crate) async fn get_sol_price_usd() -> Option<f64> {
     {
         if let Ok(cache) = SOL_PRICE_CACHE.lock() {
             if let Some((price, ts)) = *cache {
-                if ts.elapsed() < Duration::from_secs(30) {
+                if ts.elapsed() < Duration::from_secs(config::SOL_PRICE_CACHE_TTL_SECS) {
                     return Some(price);
                 }
             }
@@ -90,16 +88,48 @@ pub(crate) async fn get_sol_price_usd() -> Option<f64> {
 
 pub async fn enrich(event: &RawTokenEvent, rpc_url: &str) -> Option<TokenInfo> {
     let mint = event.mint.as_ref()?;
+    tracing::debug!("enrich: received {mint}");
 
     let (mint_authority_revoked, freeze_authority_revoked) =
         match rpc::fetch_mint_authorities(rpc_url, mint).await {
             Ok((ma, fa)) => {
                 if !ma || !fa {
+                    tracing::info!(
+                        "Dropped {mint} — authority not revoked (mint_revoked={ma}, freeze_revoked={fa})"
+                    );
                     return None;
                 }
                 (ma, fa)
             }
-            Err(_) => (true, true),
+            Err(e) => {
+                let err_str = e.to_string().to_lowercase();
+                if err_str.contains("account not found") || err_str.contains("accountnotfound") {
+                    // Timing race — pump.fun WS fires before on-chain confirmation.
+                    // Retry once after 2.5 s; silent drop if still not found.
+                    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+                    match rpc::fetch_mint_authorities(rpc_url, mint).await {
+                        Ok((ma, fa)) => {
+                            if !ma || !fa {
+                                tracing::info!(
+                                    "Dropped {mint} — authority not revoked after retry (mint_revoked={ma}, freeze_revoked={fa})"
+                                );
+                                return None;
+                            }
+                            (ma, fa)
+                        }
+                        Err(e2) => {
+                            tracing::info!("Dropped {mint} — still not found after retry: {e2}");
+                            return None;
+                        }
+                    }
+                } else if err_str.contains("not an spl token mint account") {
+                    tracing::warn!("Dropped {mint} — owner is neither SPL Token nor Token-2022: {e}");
+                    return None;
+                } else {
+                    tracing::warn!("Dropped {mint} — fetch_mint_authorities failed: {e}");
+                    return None;
+                }
+            }
         };
 
     let sol_price_opt = get_sol_price_usd().await;
@@ -116,7 +146,7 @@ async fn build_from_event(mint: &str, event: &RawTokenEvent, sol_price: Option<f
     let v_sol = event.v_sol_in_curve;
     let v_tokens = event.v_tokens_in_curve;
 
-    let liquidity_sol = v_sol.map(|s| (s - PUMP_INIT_VSOL).max(0.0)).unwrap_or(0.0);
+    let liquidity_sol = v_sol.map(|s| (s - config::PUMP_INIT_VSOL).max(0.0)).unwrap_or(0.0);
 
     let price_usd = match (v_sol, v_tokens, sol_price) {
         (Some(s), Some(t), Some(sp)) if t > 0.0 => Some((s / t) * sp),

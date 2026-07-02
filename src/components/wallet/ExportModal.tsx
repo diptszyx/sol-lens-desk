@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { useWalletStore } from '../../store/wallet'
 
 interface Props {
   onClose: () => void
@@ -21,12 +22,16 @@ export function ExportModal({ onClose }: Props) {
   const [result, setResult] = useState<ExportResult | null>(null)
   const [copiedField, setCopiedField] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const activeAddress = useWalletStore((s) => s.activeAddress)
 
   async function handleExport() {
     if (!password) return
     setLoading(true); setError(null)
     try {
-      const data = await invoke<ExportResult>('export_wallet', { password })
+      const data = await invoke<ExportResult>('export_wallet', {
+        password,
+        address: activeAddress ?? null,
+      })
       setResult(data)
       setStage('keys')
     } catch (e) {
@@ -65,7 +70,7 @@ export function ExportModal({ onClose }: Props) {
           {stage === 'password' && (
             <div className="space-y-3">
               <p className="text-xs text-[var(--text-3)]">
-                Enter your password to decrypt your wallet keys. Seed phrase shown only if wallet was created or imported via mnemonic.
+                Enter your app password to decrypt and reveal your keys. Seed phrase shown only if wallet was created or imported via mnemonic.
               </p>
               <input
                 ref={inputRef}

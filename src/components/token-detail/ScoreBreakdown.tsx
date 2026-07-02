@@ -1,26 +1,51 @@
 import { useState } from 'react'
 import type { ScoreBreakdown as ScoreBreakdownType } from '../../types'
 
-function Row({ label, points, max, detail, satisfied }: {
+type TierState = 'full' | 'partial' | 'zero'
+
+function tierState(points: number, max: number): TierState {
+  if (points >= max) return 'full'
+  if (points > 0) return 'partial'
+  return 'zero'
+}
+
+const TIER_ICON: Record<TierState, string> = { full: '✓', partial: '~', zero: '✗' }
+const TIER_ICON_COLOR: Record<TierState, string> = {
+  full: 'text-green-400',
+  partial: 'text-yellow-400',
+  zero: 'text-red-400/60',
+}
+const TIER_TEXT_COLOR: Record<TierState, string> = {
+  full: 'text-[var(--text-1)]',
+  partial: 'text-[var(--text-1)]',
+  zero: 'text-[var(--text-3)]',
+}
+const TIER_POINTS_COLOR: Record<TierState, string> = {
+  full: 'text-green-400',
+  partial: 'text-yellow-400',
+  zero: 'text-[var(--text-3)]',
+}
+
+function Row({ label, points, max, detail }: {
   label: string
   points: number
   max: number
   detail: string
-  satisfied: boolean
 }) {
+  const state = tierState(points, max)
   return (
-    <div className={`flex items-center justify-between py-1.5 px-2 rounded ${satisfied ? 'text-[var(--text-1)]' : 'text-[var(--text-3)]'}`}>
+    <div className={`flex items-center justify-between py-1.5 px-2 rounded ${TIER_TEXT_COLOR[state]}`}>
       <div className="flex flex-col min-w-0">
         <div className="flex items-center gap-1.5">
-          <span className={`text-xs ${satisfied ? 'text-green-400' : 'text-red-400/60'}`}>
-            {satisfied ? '✓' : '✗'}
+          <span className={`text-xs ${TIER_ICON_COLOR[state]}`}>
+            {TIER_ICON[state]}
           </span>
           <span className="text-[11px] truncate">{label}</span>
         </div>
         <span className="text-[10px] text-[var(--text-3)] pl-4 truncate">{detail}</span>
       </div>
       <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-        <span className={`text-[11px] font-semibold tabular-nums ${satisfied ? 'text-green-400' : 'text-[var(--text-3)]'}`}>
+        <span className={`text-[11px] font-semibold tabular-nums ${TIER_POINTS_COLOR[state]}`}>
           +{points}
         </span>
         <span className="text-[10px] text-[var(--text-3)]">/ {max}</span>
@@ -54,34 +79,50 @@ export function ScoreBreakdownPanel({ breakdown, devHoldPct, bondingCurvePct, de
     ? socialLinks.map((s) => s.label).join(' · ')
     : hasSocials === false ? 'no socials' : 'unknown'
 
+  const devHoldLabel = breakdown.dev_hold_safety >= 40
+    ? 'Dev hold < 5%'
+    : breakdown.dev_hold_safety > 0
+      ? 'Dev hold 5–10%'
+      : 'Dev hold ≥ 10%'
+
+  const curveLabel = breakdown.bonding_curve_signal >= 30
+    ? 'Bonding curve 30–50%'
+    : breakdown.bonding_curve_signal === 20
+      ? 'Bonding curve 50–70%'
+      : breakdown.bonding_curve_signal > 0
+        ? 'Bonding curve ≥ 70%'
+        : 'Bonding curve < 30%'
+
+  const devBuyLabel = breakdown.dev_buy_signal >= 20
+    ? 'Dev buy ≥ 1 SOL'
+    : breakdown.dev_buy_signal > 0
+      ? 'Dev buy ≥ 0.5 SOL'
+      : 'Dev buy < 0.5 SOL'
+
   const items = [
     {
-      label: 'Dev hold < 5%',
+      label: devHoldLabel,
       points: breakdown.dev_hold_safety,
       max: 40,
       detail: devHoldPct != null ? `dev holds ${devHoldPct.toFixed(1)}%` : 'unknown',
-      satisfied: breakdown.dev_hold_safety > 0,
     },
     {
-      label: 'Bonding curve signal',
+      label: curveLabel,
       points: breakdown.bonding_curve_signal,
       max: 30,
       detail: bondingCurvePct != null ? `curve at ${bondingCurvePct.toFixed(0)}%` : 'unknown',
-      satisfied: breakdown.bonding_curve_signal > 0,
     },
     {
-      label: 'Dev buy ≥ 1 SOL',
+      label: devBuyLabel,
       points: breakdown.dev_buy_signal,
       max: 20,
       detail: devBuySol != null ? `dev bought ${devBuySol.toFixed(2)} SOL` : 'unknown',
-      satisfied: breakdown.dev_buy_signal > 0,
     },
     {
       label: 'Has socials',
       points: breakdown.socials_signal,
       max: 10,
       detail: socialsDetail,
-      satisfied: breakdown.socials_signal > 0,
     },
   ]
 
